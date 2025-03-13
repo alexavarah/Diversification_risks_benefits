@@ -1,0 +1,114 @@
+---
+title: "summary"
+author: "Alexa Varah"
+date: "2024-06-13"
+output: html_document
+---
+
+
+```{r}
+# packages
+library(dplyr)
+library(tidyr)
+
+
+c_gp_yld <- read.csv("../output/trade_offs_tidy.csv", header = T) %>% 
+  dplyr::mutate(
+    scenario = factor(scenario, levels = c("BAU", "MIT")),
+    region = factor(region, levels = c("north", "central", "east")),
+    soiltype = factor(soiltype, levels = c("heavy", "medium","light")),
+    initDR = factor(initDR, levels = c("LD-LR", "LD-HR", "HD-HR"))
+    )
+
+#risk_summary <- read.csv("../summary_risk_per_BGseverity.csv")
+
+```
+
+```{r}
+c_gp_yld %>% 
+  dplyr::filter(scenario == "MIT") %>% 
+  dplyr::group_by(region, soiltype, initDR) %>% 
+  # calculate mean values---- 
+  dplyr::summarise(across(c(
+    gp_pc_change, cal_pc_change, land_use_pc_change, c_pc_change
+    ),.fns = list(
+      mean=~mean(.x, na.rm = TRUE),
+      n=~nobs(.x)))) %>% 
+  ungroup() %>%
+  # tidy up----
+  # dplyr::rename(n = gp_pc_change_n) %>% # create 1 column to hold 'n'
+  # dplyr::relocate(n, .after = initDR) %>% 
+  # dplyr::select(-contains('_n')) %>% 
+  # summarise across initDR ----
+  dplyr::group_by(initDR) %>% 
+  dplyr::summarise(
+    gp_summary = mean(gp_pc_change_mean),
+    cal_summary = mean(cal_pc_change_mean),
+    landuse_summary = mean(land_use_pc_change_mean),
+    c_summary = mean(c_pc_change_mean)
+  )
+```
+
+
+
+```{r}
+c_gp_yld %>% 
+  dplyr::filter(scenario == "MIT") %>% 
+  dplyr::group_by(initDR) %>% 
+  dplyr::summarise(
+    gp_pc_ch = mean(gp_pc_change),
+    cal_pc_ch = mean(cal_pc_change),
+    landuse_pc_ch = mean(land_use_pc_change),
+    c_pc_ch = mean(c_pc_change)
+  )
+```
+
+```{r}
+c_gp_yld %>% 
+  dplyr::group_by(scenario, initDR) %>% 
+  # calculate mean values---- 
+  dplyr::summarise(across(c(gp, gp_pc_change),
+                          .fns = list(mean=~mean(.x, na.rm = TRUE), 
+                                      n=~nobs(.x)))) %>% 
+  ungroup() %>%
+  dplyr::arrange(initDR) 
+```
+
+
+
+```{r}
+c_gp_yld %>% 
+  dplyr::filter(scenario == "MIT") %>% 
+  dplyr::group_by(region, soiltype, initDR) %>% 
+  # calculate min and max values (this grouping will give range across years)----
+  dplyr::mutate(
+    oc_min = min(oc, na.rm = TRUE),
+    oc_max = max(oc, na.rm = TRUE),
+    calories_diff_min = min(calories_diff, na.rm = TRUE),
+    calories_diff_max = max(calories_diff, na.rm = TRUE),
+    land_use_diff_min = min(land_use_diff, na.rm = TRUE),
+    land_use_diff_max = max(land_use_diff, na.rm = TRUE),
+    c_emiss_diff_min = min(c_emiss_diff, na.rm = TRUE),
+    c_emiss_diff_max = max(c_emiss_diff, na.rm = TRUE)
+  ) %>% 
+  # calculate mean values---- 
+  dplyr::summarise(across(c(
+    oc, oc_min, oc_max, 
+    calories_diff, calories_diff_min, calories_diff_max,
+    land_use_diff, land_use_diff_min, land_use_diff_max,
+    c_emiss_diff, c_emiss_diff_min, c_emiss_diff_max
+    ),.fns = list(
+      mean=~mean(.x, na.rm = TRUE),
+      n=~nobs(.x)))) %>% 
+  ungroup() %>%
+  # tidy up----
+  dplyr::select(-contains(c('min_n', 'max_n'))) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("min_mean", "min", .x)) %>% # remove '_mean' in 'minimum' column names
+  dplyr::rename_at(vars(everything()), ~ sub("max_mean", "max", .x)) %>% # remove '_mean' in 'maximum' column names
+  dplyr::rename(n = oc_n) %>% # create 1 column to hold 'n'
+  dplyr::relocate(n, .after = initDR) %>% 
+  dplyr::select(-contains('_n')) %>% 
+  dplyr::arrange(initDR) #%>% 
+  #dplyr::filter(initDR == "LD-HR")
+```
+
