@@ -1,0 +1,243 @@
+---
+title: "Input file set-up for CFT"
+author: "Alexa Varah"
+date: "2023-06-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This script sets up the input file for the CFT.
+
+**N.B.**  
+There is a quirk in the CFT whereby, for 'tillage changes', the 'No' option is followed by a trailing space - so it's "No ". The input data contains these spaces. However, when you load an Excel sheet with`read_xlsx`, the trailing spaces are removed. Make sure to include "trim_ws = FALSE" to retain these trailing spaces, and make sure they are also retained in the tidied output file. If you don't do this, the estimates for "C stock changes" will be incorrect (a value of 37125 will probably be returned).  
+
+# 1. Load packages and data
+## 1.1. Load packages
+```{r}
+rm(list = ls(all = TRUE)) # make sure envt is clear
+library(readxl)
+library(tidyverse)
+library("XLConnect")
+```
+
+## 1.2. Load data
+```{r}
+# input data for CFT
+mit_data <- readxl::read_xlsx("../data/InputData_FF_ECOMOD&CFT_2021-12-03.xlsx",2,trim_ws = FALSE) 
+cww_data <- readxl::read_xlsx("../data/InputData_CWW_ECOMOD&CFT_2021-12-02.xlsx",6,trim_ws = FALSE) 
+bau_data <- readxl::read_xlsx("../data/InputData_BAU_ECOMOD&CFT_2021-12-02.xlsx",6,trim_ws = FALSE) 
+
+# load test data that CFT was written for - need this to check column names
+#mgmt_data <- read_xlsx("../data/farm_mgmt_data_for_troubleshooting.xlsx",1,trim_ws = FALSE) %>% 
+#  select(-contains("results"))%>% 
+#  dplyr::mutate(rotation = factor(rotation), scenario = factor(scenario))
+
+# Ecomod output - needed to calculate yield for field area in CFT
+ecomod_output <- read.csv("../data/economic_data_3DR_yearly_mean&CI.csv", header = T) %>% 
+  dplyr::mutate(
+    scenario = factor(scenario, levels = c("BAU", "MIT", "CWW")),
+    region = factor(region, levels = c("north", "central", "east")),
+    soiltype = factor(soiltype, levels = c("heavy", "medium","light")),
+    initdenres_collapsed = factor(initdenres_collapsed,
+                                  levels = c("LD-LR", "LD-HR", "HD-HR")))
+```
+
+## 1.3. Tidy data
+Tidy the CFT input file - need to make 'fieldname' match ECOMOD output.
+```{r}
+mit_tidy <- mit_data %>% 
+  dplyr::mutate(
+    scenario = "MIT", # change 'scenario' to all MIT
+    fieldname = str_replace_all(fieldname, "-Dsty.","D-"),
+    fieldname = str_replace_all(fieldname, "-Res","R"),
+    fieldname = str_replace_all(fieldname, "N.","n_"),
+    fieldname = str_replace_all(fieldname, "E.","e_"),
+    fieldname = str_replace_all(fieldname, "C.","c_"),
+    fieldname = str_replace_all(fieldname, "heavy.","h_"),
+    fieldname = str_replace_all(fieldname, "medium.","m_"),
+    fieldname = str_replace_all(fieldname, "light.","l_"),
+    fieldID = paste(scenario, fieldname, rotation, sep = "_"),
+    rotation = factor(rotation),
+    scenario = factor(scenario)
+  )
+
+cww_tidy <- cww_data %>% 
+  dplyr::mutate(
+    fieldname = str_replace_all(fieldname, "-Den.","D-"),
+    fieldname = str_replace_all(fieldname, "-Res","R"),
+    fieldname = str_replace_all(fieldname, "N.","n_"),
+    fieldname = str_replace_all(fieldname, "E.","e_"),
+    fieldname = str_replace_all(fieldname, "C.","c_"),
+    fieldname = str_replace_all(fieldname, "heavy.","h_"),
+    fieldname = str_replace_all(fieldname, "medium.","m_"),
+    fieldname = str_replace_all(fieldname, "light.","l_"),
+    fieldID = paste(scenario, fieldname, rotation, sep = "_"),
+    product = str_replace_all(product, "Winter wheat", "winterwheat"),
+    rotation = factor(rotation),
+    scenario = factor(scenario),
+    SOM_integer = 5.848 # need to move this to before SOM
+  ) %>% 
+  dplyr::relocate(SOM_integer,  .before = SOM)
+
+bau_tidy <- bau_data %>% 
+  dplyr::mutate(
+    fieldname = str_replace_all(fieldname, "-Dsty.","D-"),
+    fieldname = str_replace_all(fieldname, "-Res","R"),
+    fieldname = str_replace_all(fieldname, "N.","n_"),
+    fieldname = str_replace_all(fieldname, "E.","e_"),
+    fieldname = str_replace_all(fieldname, "C.","c_"),
+    fieldname = str_replace_all(fieldname, "heavy.","h_"),
+    fieldname = str_replace_all(fieldname, "medium.","m_"),
+    fieldname = str_replace_all(fieldname, "light.","l_"),
+    fieldID = paste(scenario, fieldname, rotation, sep = "_"),
+    product = str_replace_all(product, "Winter wheat", "winterwheat"),
+    product = str_replace_all(product, "Oilseed Rape", "wosr"),
+    rotation = factor(rotation),
+    scenario = factor(scenario)
+  ) %>% 
+  dplyr::select(-contains("dropdown"))
+```
+
+
+Check column names for the input data are correct. They need to be (a) the same so I can bind all three datasets, and (b) the same as the dataset for which I wrote the CFT-running code as it's based on selecting columns by column number not name.  
+  
+Needs to match this:
+ [1] "fieldname"                             "scenario"                             
+ [3] "year"                                  "rotation"                             
+ [5] "fieldID"                               "product"                              
+ [7] "production_area"                       "finished_product_from_production_area"
+ [9] "climate"                               "avg_annual_temp"                      
+[11] "croptype"                              "soiltexture"                          
+[13] "SOM_integer"                           "SOM"                                  
+[15] "soilmoisture"                          "soildrainage"                         
+[17] "pHvalue"                               "pH"                                   
+[19] "fertiliser1"                           "applicationrate"                      
+[21] "fertiliser_spraydays"                  "pesticide_applicns"                   
+[23] "tillage_changes"                       "tillage_changes_time"                 
+[25] "tillage_changes_pc"                    "residue_management"                   
+[27] "residue_incorporation"                 "chisel_plough"                        
+[29] "disc_gang"                             "disc_harrow"                          
+[31] "field_cultivator/ridger "              "grain_drill"                          
+[33] "grain_drill-notill"                    "row_crop_planter"                     
+[35] "moldboard_plough"                      "roller_harrow"                        
+[37] "roller_packer"                         "rotary_hoe_bed tiller"                
+[39] "subsoiler"                             "tine_harrow"                          
+[41] "spraydays_BGgly"  
+
+### 1.3.1. Check MIT
+`intersect` lists the names of matching columns.  
+```{r}
+intersect(colnames(mgmt_data),  colnames(mit_tidy))
+```
+
+And check if there are any colnames in the template df that are missing in the input data.  
+`setdiff` gives colnames that ARE in the 1st df but NOT in the 2nd df.  
+```{r}
+setdiff(colnames(mgmt_data), colnames(mit_tidy))
+```
+
+Also check the other way round - don't want more columns in the input data than in the template.
+```{r}
+setdiff(colnames(mit_tidy), colnames(mgmt_data))
+```
+
+MIT data is fine. Good, added new column to CFT data.  
+
+### 1.3.2. Check BAU
+
+Check if there are any colnames in the template df that are missing in the input data.  
+`setdiff` gives colnames that ARE in the 1st df but NOT in the 2nd df:  
+```{r}
+setdiff(colnames(mgmt_data), colnames(bau_tidy))
+```
+
+Also check the other way round - don't want more columns in the input data than in the template.
+```{r}
+setdiff(colnames(bau_tidy), colnames(mgmt_data))
+```
+
+BAU is fine.
+
+### 1.3.3. Check CWW
+
+Check if there are any colnames in the template df that are missing in the input data.  
+`setdiff` gives colnames that ARE in the 1st df but NOT in the 2nd df:  
+```{r}
+setdiff(colnames(mgmt_data), colnames(cww_tidy))
+```
+
+Also check the other way round - don't want more columns in the input data than in the template.
+```{r}
+setdiff(colnames(cww_tidy), colnames(mgmt_data))
+```
+
+CWW is fine.
+
+
+### 1.3.4. Subset ECOMOD output
+
+Select just the data I need from ECOMOD output. I need the yield data.
+```{r}
+yld <- ecomod_output %>% 
+  #dplyr::filter(scenario == "MIT") %>% # for now, just use MIT. Eventually will need all scenarios.
+  dplyr::select(ID, wtd_yield_mean) 
+
+str(yld)
+```
+Join CFT input files.
+```{r}
+cft_all <- rbind(bau_tidy, cww_tidy, mit_tidy)
+```
+
+
+### 1.3.5. Calculate finished product based on ECOMOD output
+
+Now join the yield and CFT input, and calculate 'finished product' for the field area. Be careful with proxy crops in ECOMOD:  
+  
+**Spring oats**
+In ECOMOD, spring oats were run as spring barley, but I ran it with the yield set to 'actual' and provided the average spring oat yield from Nix 2019. So I can use the yield value from the ECOMOD output.
+
+**Maize**
+In ECOMOD, maize was run as spring OSR. So, for maize crops, retain the yield estimated using average yields (in other words, retain the value given in the 'mit_data' file). 
+
+So move across the new yield estimates from the 'finished_prod' column, replacing the estimates in the 'finished_product_from_production_area' column, EXCEPT where the crop is maize (and any others?).
+
+```{r}
+cft_tidy <- left_join(cft_all, yld, by = c("fieldID" = "ID")) %>% 
+  
+  dplyr::mutate(
+    # Calculate weighted gross profit for each row for the affected variables
+    finished_prod = production_area * wtd_yield_mean,
+    # replace maize value in new column with original value
+    finished_prod = replace(finished_prod, 
+                            product == "maize", 
+                            finished_product_from_production_area[product == "maize"])) %>% 
+ 
+  # remove superseded column 'finished_product_from_production_area'
+  dplyr::select(-finished_product_from_production_area) %>% 
+  # rename 'finished_prod' as 'finished_product_from_production_area'
+  dplyr::rename(finished_product_from_production_area = finished_prod) %>%  # new name, old name
+  # more 'finished_product_from_production_area' to before 'climate' column
+  dplyr::relocate(finished_product_from_production_area,  .before = climate)
+```
+
+### 1.3.6. Check for NAs
+```{r}
+cft_tidy[!complete.cases(cft_tidy), ]
+```
+
+There are no rows with NAs.
+
+### 1.3.7. Save tidy data frame.
+```{r}
+write.csv(cft_tidy, "../output/cft_input_tidy.csv", row.names = FALSE)
+```
+
+Clean up.
+```{r}
+rm(list = ls(all = TRUE))
+```
+
