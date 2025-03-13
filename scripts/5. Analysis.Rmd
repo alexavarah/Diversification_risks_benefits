@@ -1,0 +1,1711 @@
+---
+title: "Analyse trade-offs"
+author: "Alexa Varah"
+date: "2024-05-21"
+output: html_document
+---
+
+# 1. Intro
+  
+This script looks at what happens to farm gross profits, yield (in calories), and carbon emissions when farmers switch from a BAU crop rotation to strategies aimed at mitigating herbicide-resistance black-grass in England.  
+  
+We ignore the 'continuous winter wheat' scenario from the previous paper as we showed there that it's worst for controlling herbicide-resistant black-grass.  
+
+Data `c_gp_yld` is already summarised across imputations.  
+
+
+## Sources of emissions in CFT
+
+**Pesticide emissions**  
+Pesticide emissions = number of pesticide applications * embodied emissions in pesticides (kg COs-eq / dose / ha) * crop yield / ha  
+This doesn't account for the fuel used when applying pesticides, only the emissions caused by pesticide production.  
+
+**Direct and indirect field N2O**  
+Direct and indirect field N2O = Background direct and indirect N2O + Fertiliser induced field emissions (FIE)  
+
+Background direct and indirect N2O = N2O + NO (they don't include NH3 volatilisation + leaching in this equation)
+Fertiliser induced field emissions = N to N2O conversion factor * (N2O + NO + NH3 volatilisation + leaching)
+NH3 volatilisation = volatilisation emissions factor of 0.01 * 
+                      sum of NH3 volatilisation from each fertiliser application
+NH3 volatilisation from a fertiliser application = amount of N applied * 
+      EXP(sum of NH3 volatilisation factors for climate, crop type, soil texture, SOM, soil CEC, drainage, pH + 
+              NH3 from fertiliser production emissions + 
+                NH3 from fertiliser application)
+              
+**Field energy use**  
+This contains emissions from diesel used in tillage, herb spraying, fert spreading/spraying, other field ops (harvest etc - we haven't input data on these other field ops).
+
+  
+# 2. Load packages, functions, data
+## 2.1. Load packages & functions
+```{r}
+# Load packages
+rm(list = ls(all = TRUE)) # clear envt
+#library(hrbrthemes) # for theme_ipsum() in plot
+library(tidyverse)
+library(patchwork) # for panel plots
+library(grateful)
+library(readxl) # for reading in Excel workbooks / spreadsheets
+library(viridis)
+library(forcats)
+
+# Function to count complete observations ----
+nobs <- function(x) length(x[!is.na(x)])
+
+# Function to annotate plots (N.B. I no longer use this) ----
+# annotate_text2 <- function(label, x, y, facets=NULL, hjust=0, vjust=0, color='black', alpha=NA,
+#                           family=thm$text$family, size=thm$text$size, fontface=1, lineheight=1.0,
+#                           box_just=ifelse(c(x,y)<0.5,0,1), margin=unit(size/2, 'pt'), thm=theme_get()) {
+#   x <- scales::squish_infinite(x)
+#   y <- scales::squish_infinite(y)
+#   data <- if (is.null(facets)) data.frame(x=NA) else data.frame(x=NA, facets)
+# 
+#   tg <- grid::textGrob(
+#     label, x=0, y=0, hjust=hjust, vjust=vjust,
+#     gp=grid::gpar(col=alpha(color, alpha), fontsize=size, fontfamily=family, fontface=fontface, lineheight=lineheight)
+#   )
+#   ts <- grid::unit.c(grid::grobWidth(tg), grid::grobHeight(tg))
+#   vp <- grid::viewport(x=x, y=y, width=ts[1], height=ts[2], just=box_just)
+#   tg <- grid::editGrob(tg, x=ts[1]*hjust, y=ts[2]*vjust, vp=vp)
+#   inner <- grid::grobTree(tg, vp=grid::viewport(width=unit(1, 'npc')-margin*2, height=unit(1, 'npc')-margin*2))
+# 
+#   layer(
+#     data = NULL,
+#     stat = StatIdentity,
+#     position = PositionIdentity,
+#     geom = GeomCustomAnn,
+#     inherit.aes = TRUE,
+#     params = list(
+#       grob=grid::grobTree(inner), 
+#       xmin=-Inf, 
+#       xmax=Inf, 
+#       ymin=-Inf, 
+#       ymax=Inf
+#     )
+#   )
+# }
+
+```
+
+## 2.2. Load data
+```{r}
+c_gp_yld <- read.csv("../output/trade_offs_tidy.csv", header = T) %>% 
+  dplyr::mutate(
+    scenario = factor(scenario, levels = c("BAU", "MIT")),
+    region = factor(region, levels = c("north", "central", "east")),
+    soiltype = factor(soiltype, levels = c("heavy", "medium","light")),
+    initDR = factor(initDR, levels = c("LD-LR", "LD-HR", "HD-HR"))
+    )
+```
+
+# 3. Summary table in paper: Percentage change in gp, C, calories, landuse, for each level of initDR
+## 3.1. Calculate % change from rotation means for 3 levels of initDR
+Here, I calculate the mean gp, kcal, land use, and GHG emissions across the rotation, then calculate the difference between BAU and MIT for each rotation, then calculate the % change for the rotation. The min and max values show the range across regions and soil types.  
+```{r}
+pc_change_rotn <- c_gp_yld %>%
+  
+  # 1. Calculate rotation mean for gp, yield, landuse, GHG emiss
+  dplyr::group_by(scenario, region, soiltype, initDR) %>% 
+  dplyr::mutate(
+    # gross profit mean
+    gp_mean = mean(gp),
+    cal_mean = mean(calories),
+    lu_mean = mean(land_use),
+    ghg_mean = mean(c_total)
+  ) %>% 
+  ungroup() %>% 
+  dplyr::select(c(scenario:initDR, gp_mean:ghg_mean)) %>% 
+  dplyr::distinct(scenario, region, soiltype, initDR, .keep_all = TRUE) %>% 
+  
+  # 2. Calculate difference between MIT and BAU
+  dplyr::group_by(region, soiltype, initDR) %>% 
+  dplyr::mutate(
+    gp_diff = gp_mean - gp_mean[scenario == "BAU"],
+    cal_diff = cal_mean - cal_mean[scenario == "BAU"],
+    lu_diff = lu_mean - lu_mean[scenario == "BAU"],
+    ghg_diff = ghg_mean - ghg_mean[scenario == "BAU"]
+  ) %>% 
+  ungroup() %>% 
+  
+  # 3. Calculate percentage change
+  dplyr::group_by(region, soiltype, initDR) %>% 
+  dplyr::mutate(
+    
+    # gross profit % change
+    gp_pc = (gp_diff/gp_mean[scenario == "BAU"])*100, # opportunity cost is already the difference in gross profit 
+    
+    # calories % change
+    kcal_pc = (cal_diff/cal_mean[scenario == "BAU"])*100,    
+    
+    # land use % change
+    landuse_pc = (lu_diff/lu_mean[scenario == "BAU"])*100,  
+    
+    # carbon emissions % change
+    ghg_pc = (ghg_diff/ghg_mean[scenario == "BAU"])*100
+    
+  ) %>% 
+  ungroup() %>% 
+  
+  # 4. Calculate min and max values (this grouping will give range across region and soil types)
+  dplyr::filter(scenario == "MIT") %>% 
+  dplyr::group_by(initDR) %>%
+  dplyr::mutate(
+
+    # gross profit difference min & max
+    gp_pc_min = min(gp_pc, na.rm = TRUE),
+    gp_pc_max = max(gp_pc, na.rm = TRUE),
+
+    # calories difference min & max
+    kcal_pc_min = min(kcal_pc, na.rm = TRUE),
+    kcal_pc_max = max(kcal_pc, na.rm = TRUE),
+
+    # land use difference min & max
+    landuse_pc_min = min(landuse_pc, na.rm = TRUE),
+    landuse_pc_max = max(landuse_pc, na.rm = TRUE),
+
+    # GHG difference min & max
+    ghg_pc_min = min(ghg_pc, na.rm = TRUE),
+    ghg_pc_max = max(ghg_pc, na.rm = TRUE)
+
+  ) %>%
+  ungroup() %>%
+  
+  # 5. Calculate mean for each level of initDR
+  dplyr::group_by(initDR) %>% 
+  dplyr::mutate(
+    
+    # gross profit rotation mean % change
+    gp_pc_mean = mean(gp_pc),
+
+    # calories rotation mean % change
+    kcal_pc_mean = mean(kcal_pc),
+    
+    # land use rotation mean % change
+    lu_pc_mean = mean(landuse_pc),
+    
+    # carbon emissions rotation mean % change
+    ghg_pc_mean = mean(ghg_pc)
+    
+  ) %>% 
+  
+  #Select just useful columns and filter out duplicates
+  #dplyr::select(initDR, contains("pc_")) %>% 
+  dplyr::select(initDR, 
+                gp_pc_mean, gp_pc_min, gp_pc_max,
+                kcal_pc_mean, kcal_pc_min, kcal_pc_max,
+                lu_pc_mean, landuse_pc_min, landuse_pc_max,
+                ghg_pc_mean, ghg_pc_min, ghg_pc_max) %>% 
+  dplyr::distinct(initDR, .keep_all = TRUE) %>% 
+  arrange(initDR)
+
+pc_change_rotn
+```
+
+This approach (in which I calculated % change from rotation means) is the same as the approach used in the previous paper. This approach also makes more sense than the one below as here, the calories produced per m2 match up better with the landuse. If you produce more calories per m2 in MIT, then you should require less land to produce 1000 kcal. This is reflected here: where the % change is +ve for calories, it's -ve for landuse. Using the first approach, this relationship isn't there.
+
+## 3.2. Save output as .csv
+```{r}
+write.csv(pc_change_rotn, "../output/summarytable_from_rotn_means.csv", row.names = FALSE)
+```
+
+
+
+# 4. Mean difference in C emissions per initDR
+This gives min and max values across regions and soil types. Used in the paper.  
+```{r}
+c_gp_yld %>%
+  
+  # 1. Calculate rotation mean gp, yield, landuse, GHG emiss
+  dplyr::group_by(scenario, region, soiltype, initDR) %>% 
+  dplyr::mutate(
+    ghg_mean = mean(c_total)
+  ) %>% 
+  ungroup() %>% 
+  dplyr::select(c(scenario:initDR, ghg_mean)) %>% 
+  dplyr::distinct(scenario, region, soiltype, initDR, .keep_all = TRUE) %>% 
+  
+  # 2. Calculate difference between MIT and BAU
+  dplyr::group_by(region, soiltype, initDR) %>% 
+  dplyr::mutate(
+    ghg_diff = ghg_mean - ghg_mean[scenario == "BAU"]
+  ) %>% 
+  ungroup() %>% 
+  
+  # 3. Calculate min and max values (this grouping will give range across region and soil types)
+  dplyr::filter(scenario == "MIT") %>% 
+  dplyr::group_by(initDR) %>%
+  dplyr::mutate(
+    ghg_diff_min = min(ghg_diff, na.rm = TRUE),
+    ghg_diff_max = max(ghg_diff, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  
+  # 5. Calculate mean for each level of initDR
+  dplyr::group_by(initDR) %>% 
+  dplyr::mutate(
+    ghg_diff_mean = mean(ghg_diff)
+  ) %>% 
+  
+  #Select just useful columns and filter out duplicates
+  dplyr::select(initDR, 
+                ghg_diff_mean, ghg_diff_min, ghg_diff_max) %>% 
+  dplyr::distinct(initDR, .keep_all = TRUE) %>% 
+  arrange(initDR)
+```
+
+
+# 5. Summarise across rotations 
+For plots of the effect of initial density-resistance state *within regions and soil types* (i.e., panel plots, where panels are region and soil), range needs to show variability across years in the rotation.  
+  
+```{r, attr.source='.numberLines'}
+trdoff_rot <- c_gp_yld %>% 
+  dplyr::group_by(scenario, region, soiltype, initDR) %>% 
+  # calculate min and max values (this grouping will give range across years)----
+  dplyr::mutate(
+    gp_min = min(gp, na.rm = TRUE),
+    gp_max = max(gp, na.rm = TRUE),
+    oc_min = min(oc, na.rm = TRUE),
+    oc_max = max(oc, na.rm = TRUE),
+    ww_pc_min = min(ww_pc, na.rm = TRUE),
+    ww_pc_max = max(ww_pc, na.rm = TRUE),
+    calories_min = min(calories, na.rm = TRUE),
+    calories_max = max(calories, na.rm = TRUE),
+    calories_diff_min = min(calories_diff, na.rm = TRUE),
+    calories_diff_max = max(calories_diff, na.rm = TRUE),
+    yield_min = min(yield, na.rm = TRUE),
+    yield_max = max(yield, na.rm = TRUE),
+    land_use_min = min(land_use, na.rm = TRUE),
+    land_use_max = max(land_use, na.rm = TRUE),
+    land_use_diff_min = min(land_use_diff, na.rm = TRUE),
+    land_use_diff_max = max(land_use_diff, na.rm = TRUE),
+    c_total_min = min(c_total, na.rm = TRUE),
+    c_total_max = max(c_total, na.rm = TRUE),
+    c_emiss_diff_min = min(c_emiss_diff, na.rm = TRUE),
+    c_emiss_diff_max = max(c_emiss_diff, na.rm = TRUE)
+  ) %>% 
+  # calculate mean values---- 
+  dplyr::summarise(across(c(
+    gp, gp_min, gp_max, # all min values are the same so the mean == min, ditto for max
+    oc, oc_min, oc_max, 
+    ww_pc, ww_pc_min, ww_pc_max, 
+    calories, calories_min, calories_max,
+    calories_diff, calories_diff_min, calories_diff_max,
+    yield, yield_min, yield_max,
+    land_use, land_use_min, land_use_max,
+    land_use_diff, land_use_diff_min, land_use_diff_max,
+    c_total, c_total_min, c_total_max,
+    c_emiss_diff, c_emiss_diff_min, c_emiss_diff_max
+    ),.fns = list(
+      mean=~mean(.x, na.rm = TRUE),
+      n=~nobs(.x)))) %>% 
+  ungroup() %>%
+  # tidy up----
+  dplyr::select(-contains(c('min_n', 'max_n'))) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("min_mean", "min", .x)) %>% # remove '_mean' in 'minimum' column names
+  dplyr::rename_at(vars(everything()), ~ sub("max_mean", "max", .x)) %>% # remove '_mean' in 'maximum' column names
+  dplyr::rename(n = oc_n) %>% # create 1 column to hold 'n'
+  dplyr::relocate(n, .after = initDR) %>% 
+  dplyr::select(-contains('_n'))
+```
+
+
+
+# 6. Emissions sources 
+Sources of GHG emissions:  
+c_fert_prod  
+c_fert_appl  
+c_pesticide     
+c_field_energy_use  
+  
+Calculate differences due to each source.
+```{r}
+c_source <- c_gp_yld %>% 
+  
+  # find differences between BAU and MIT for each GHG source
+  dplyr::group_by(region, soiltype, initDR, year) %>% 
+  dplyr::mutate(
+    # c_fert_prod
+    c_fert_prod_diff = c_fert_prod - c_fert_prod[scenario == "BAU"],
+    c_fert_prod_pc_change = (c_fert_prod_diff/c_fert_prod[scenario == "BAU"])*100,
+    # c_fert_appl
+    c_fert_appl_diff = c_fert_appl - c_fert_appl[scenario == "BAU"],
+    c_fert_appl_pc_change = (c_fert_appl_diff/c_fert_appl[scenario == "BAU"])*100,
+    # c_pesticide
+    c_pesticide_diff = c_pesticide - c_pesticide[scenario == "BAU"],
+    c_pesticide_pc_change = (c_pesticide_diff/c_pesticide[scenario == "BAU"])*100,
+    # c_field_energy_use
+    c_feu_diff = c_field_energy_use - c_field_energy_use[scenario == "BAU"],
+    c_feu_pc_change = (c_feu_diff/c_field_energy_use[scenario == "BAU"])*100,
+  ) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::filter(scenario == 'MIT') %>% 
+   
+  # get min and max values (this grouping will give range across years)----
+  dplyr::group_by(region, soiltype, initDR) %>% 
+  dplyr::mutate(
+    # c_fert_prod
+    c_fert_prod_diff_min = min(c_fert_prod_diff, na.rm = TRUE),
+    c_fert_prod_diff_max = max(c_fert_prod_diff, na.rm = TRUE),
+    # c_fert_appl
+    c_fert_appl_diff_min = min(c_fert_appl_diff, na.rm = TRUE),
+    c_fert_appl_diff_max = max(c_fert_appl_diff, na.rm = TRUE),
+    # c_pesticide
+    c_pesticide_diff_min = min(c_pesticide_diff, na.rm = TRUE),
+    c_pesticide_diff_max = max(c_pesticide_diff, na.rm = TRUE),
+    # c_field_energy_use
+    c_feu_diff_min = min(c_feu_diff, na.rm = TRUE),
+    c_feu_diff_max = max(c_feu_diff, na.rm = TRUE)
+  ) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::select(ID:crop, c_fert_prod_diff:c_feu_diff_max) %>% 
+  
+  # calculate mean values across a rotation---- 
+dplyr::group_by(scenario, region, soiltype, initDR) %>% 
+  dplyr::summarise(across(c(
+    # c_fert_prod
+    c_fert_prod_diff, c_fert_prod_diff_min, c_fert_prod_diff_max,
+    # c_fert_appl
+    c_fert_appl_diff, c_fert_appl_diff_min, c_fert_appl_diff_max, 
+    # c_pesticide
+    c_pesticide_diff, c_pesticide_diff_min, c_pesticide_diff_max, 
+    # c_field_energy_use
+    c_feu_diff, c_feu_diff_min, c_feu_diff_max
+    ),.fns = list(
+      mean=~mean(.x, na.rm = TRUE),
+      n=~nobs(.x)))) %>% 
+  ungroup() %>% 
+  
+  # tidy up----
+  dplyr::select(-contains(c('min_n', 'max_n'))) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("min_mean", "min", .x)) %>% # remove '_mean' in 'minimum' column names
+  dplyr::rename_at(vars(everything()), ~ sub("max_mean", "max", .x)) %>% # remove '_mean' in 'maximum' column names
+  dplyr::rename(n = c_fert_prod_diff_n) %>% # create 1 column to hold 'n'
+  dplyr::relocate(n, .after = initDR) %>% 
+  dplyr::select(-contains('_n')) %>% 
+  dplyr::ungroup()
+
+c_source
+```
+
+Convert from wide to long for plotting.
+```{r}
+mean_df <- c_source %>%
+  dplyr::select(region, soiltype, initDR, contains('mean')) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("_diff_mean", "", .x)) %>% # remove '_diff_mean' from column names
+  dplyr::rename_at(vars(everything()), ~ sub("c_", "", .x)) %>% # remove 'c_' from column names
+  pivot_longer(
+    #cols = ends_with("mean"),
+    cols = fert_prod:feu,
+    names_to = "source_of_emissions",
+    #names_suffix = "_mean",
+    values_to = "rotation_mean",
+    values_drop_na = TRUE
+  )
+
+min_df <- c_source %>%
+  dplyr::select(region, soiltype, initDR, contains('min')) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("_diff_min", "", .x)) %>% # remove '_diff_mean' from column names
+  dplyr::rename_at(vars(everything()), ~ sub("c_", "", .x)) %>% # remove 'c_' from column names
+  pivot_longer(
+    cols = fert_prod:feu,
+    names_to = "source_of_emissions",
+    values_to = "rotation_min",
+    values_drop_na = TRUE
+  )
+
+max_df <- c_source %>%
+  dplyr::select(region, soiltype, initDR, contains('max')) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("_diff_max", "", .x)) %>% # remove '_diff_mean' from column names
+  dplyr::rename_at(vars(everything()), ~ sub("c_", "", .x)) %>% # remove 'c_' from column names
+  pivot_longer(
+    cols = fert_prod:feu,
+    names_to = "source_of_emissions",
+    values_to = "rotation_max",
+    values_drop_na = TRUE
+  )
+
+# Join data frames
+sources <- dplyr::left_join(mean_df, min_df, by = c("region", "soiltype", "initDR", "source_of_emissions")) %>% 
+  dplyr::left_join(., max_df, by = c("region", "soiltype", "initDR", "source_of_emissions")) %>% 
+  #dplyr::mutate(across('source_of_emissions', str_replace, 'feu', 'field_energy_use'))
+  dplyr::mutate(across('source_of_emissions', ~ str_replace(., 'feu', 'field_energy_use'))) %>% 
+  dplyr::mutate(across('source_of_emissions', ~ str_replace(., 'fert_appl', 'fertiliser_application'))) %>% 
+  dplyr::mutate(across('source_of_emissions', ~ str_replace(., 'fert_prod', 'fertiliser_production'))) 
+  
+
+
+# Tidy up
+#rm(mean_df, min_df, max_df, c_source)
+```
+
+
+# 7. Plots
+## 7.1. Direction of signs - what wins?
+Difference in *gross profit: +ve value wins*  
+Difference in gross profit (opp cost) = money lost by switching = difference in gross profit MIT-BAU.  
+So if  
+MIT = 10 <- better  
+BAU = 5  
+MIT - BAU = 5 = +ve value means MIT wins  
+  
+Difference in *carbon emissions: -ve value wins*  
+Difference in carbon emissions MIT-BAU  
+So if  
+MIT = 5 <- better  
+BAU = 8  
+MIT - BAU = -3 = -ve value means MIT wins  
+  
+Difference in *calories: +ve value wins*  
+Difference in kcal produced per m2 = MIT-BAU  
+So if  
+MIT = 6  <- better  
+BAU = 3  
+MIT - BAU = 3 = +ve value means MIT wins  
+  
+Difference in *land use: -ve value wins*    
+Difference in amount of land used to produce 1000 kcal = MIT-BAU
+So if  
+MIT = 3  <- better  
+BAU = 6  
+MIT - BAU = -3 = -ve value means MIT wins
+  
+Could switch the sign on opportunity costs (would then be BAU-MIT) so that for both C emissions and gross profit, values below 0 mean MIT wins.  
+
+  
+  
+## 7.2. Figure 1 - All outcomes panel plots
+### 7.2.1. Specify panel labels
+  
+```{r, specify-panel-labels, echo=FALSE}
+region.labs <- c("Northern England", "Central England", "Eastern England") # new
+names(region.labs) <- c("north", "central", "east") # original
+
+soiltype.labs <- c("Heavy soil", "Medium soil", "Light soil") # new
+names(soiltype.labs) <- c("heavy", "medium", "light") # original
+```
+  
+  
+
+### 7.2.5. Combined plots
+
+```{r}
+# opp costs ----
+a_oc_1col <- ggplot(trdoff_rot %>% dplyr::filter(scenario == "MIT"), 
+               aes(initDR, oc_mean, colour = oc_mean < 0)) + 
+  scale_colour_manual(values = c("#009E73", "#D55E00"),
+                      labels = c("MIT wins", "MIT loses")) +
+  facet_grid(soiltype ~ region,
+             labeller = labeller(soiltype = soiltype.labs, region = region.labs),
+             scales="free_y"
+             ) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Initial density and resistance of Black-grass population", 
+       y = "Mean annual difference in gross profit (£/ha)") +
+  geom_pointrange(aes(ymin = oc_min, ymax = oc_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        #axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "none",
+        tag.text = element_text(size=22)
+        ) 
+
+# yield ----
+b_cal_1col <- ggplot(trdoff_rot %>% dplyr::filter(scenario == "MIT"), 
+               aes(initDR, calories_diff_mean, colour = calories_diff_mean < 0)) + 
+  scale_colour_manual(values = c("#009E73", "#D55E00"),
+                      labels = c("MIT wins", "MIT loses")) +
+  facet_grid(soiltype ~ region,
+             labeller = labeller(soiltype = soiltype.labs, region = region.labs),
+             scales="free_y"
+             ) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Initial density and resistance of Black-grass population", 
+       y = "Mean annual difference in calories produced (kcal/ha)") +
+  geom_pointrange(aes(ymin = calories_diff_min, ymax = calories_diff_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        #axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "none"
+        )
+
+# GHG emissions ----
+c_ghg_1col <- ggplot(trdoff_rot %>% dplyr::filter(scenario == "MIT"), 
+               aes(initDR, c_emiss_diff_mean, colour = c_emiss_diff_mean > 0)) + 
+    scale_colour_manual(values = c("#009E73", "#D55E00"),
+                      labels = c("MIT wins", "MIT loses")) +
+  facet_grid(soiltype ~ region,
+             labeller = labeller(soiltype = soiltype.labs, 
+                                 region = region.labs)) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Initial density and resistance of Black-grass population", 
+       y = expression("Mean annual difference in GHG emissions (kgCO"["2"]~"eq/ha)"),
+             scales="free_y"
+             ) +
+  geom_pointrange(aes(ymin = c_emiss_diff_min, ymax = c_emiss_diff_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "bottom"
+        )
+
+# combine ----
+facetpanel_1col <- a_oc_1col + b_cal_1col + c_ghg_1col + plot_layout(ncol = 1) +
+  plot_annotation(tag_levels = 'a', tag_prefix = '(',  tag_suffix = ')') & 
+  theme(plot.tag = element_text(size = 22, face="bold"))
+```
+
+
+
+
+
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/plot_all_outcomes_1col.png",
+#     height = 30, width = 10, units = "in", res = 300)
+# print(facetpanel_1col)
+# dev.off()
+
+pdf("../figures/plot_all_outcomes_1col.pdf", height = 30, width = 10)
+print(facetpanel_1col)
+dev.off()
+```
+
+
+## 7.3. Fig S?? 
+
+```{r}
+
+#library(ggbreak) 
+figSx_yield <- ggplot(trdoff_rot, aes(initDR, yield_mean, colour = scenario, shape = scenario)) + 
+  facet_grid(region ~ soiltype,
+             labeller = labeller(region = region.labs, 
+                                 soiltype = soiltype.labs)) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  ylim(0, 10) +
+  labs(x = "Initial density and resistance of Black-grass population", 
+       y = "Mean annual crop yield (t/ha)") +
+  # specify colours for 'scenario':
+  scale_color_manual(name = "Scenario",
+                     values = c("#00306F", # BAU, madison blue
+                                "#00C2F9") # MIT, capri blue
+                     ) + 
+  scale_shape_manual(name = "Scenario",
+                     values=c(15, # BAU, 15 = square
+                              16) # MIT, 16 = circle
+                     ) + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.title=element_text(size=24),
+        legend.text=element_text(size=24)
+        ) +
+  geom_pointrange(aes(ymin = yield_min, ymax = yield_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9)
+
+figSx_yield #+ scale_y_break(c(20, 60))
+```
+
+Save.
+```{r}
+png("../figures/Figure_Sx_yield-t-ha.png",
+    height = 10, width = 10, units = "in", res = 300)
+print(figSx_yield)
+dev.off()
+```
+
+
+```{r}
+E_L <- ggplot(trdoff_rot %>% dplyr::filter(region == "east" & soiltype == "light"), 
+       aes(initDR, yield_mean, colour = scenario, shape = scenario)) + 
+  #facet_grid(region ~ soiltype,
+  #           labeller = labeller(region = region.labs, 
+  #                               soiltype = soiltype.labs)) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Initial density and resistance of Black-grass population", 
+       y = "Mean annual wheat yield (t/ha)") +
+  # specify colours for 'scenario':
+  scale_color_manual(name = "Scenario",
+                     values = c("#00306F", # BAU, madison blue
+                                "#00C2F9") # MIT, capri blue
+                     ) + 
+  scale_shape_manual(name = "Scenario",
+                     values=c(15, # BAU, 15 = square
+                              16) # MIT, 16 = circle
+                     ) + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.title=element_text(size=24),
+        legend.text=element_text(size=24)
+        ) +
+  geom_pointrange(aes(ymin = yield_min, ymax = yield_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) + 
+  #scale_y_break(c(20, 60))
+  #scale_y_break(c(20, 60), space = 0.1, ticklabels = c(seq(0,80,20), 70), expand = c(0, 0))
+  #scale_y_break(c(16, 67), scales = 0.5) # THIS WORKS OK ISH
+  # this works better:
+  scale_y_break(c(8, 15), ticklabels = c(seq(15,16,1), 16), scales = 0.3) + 
+  scale_y_break(c(16, 67), ticklabels = c(seq(67,69,1), 70), scale=0.5) +
+  theme(axis.text.x.top = element_blank(),
+        axis.ticks.x.top = element_blank(),
+        axis.line.x.top = element_blank())
+  #scale_y_cut(breaks=c(8, 20), which=c(1, 3), scales=c(0.5, 3))
+
+E_L
+```
+
+
+
+
+## 7.3. Figure S8 - Plot change in GHG emissions by source
+### 7.3.1. Specify panel labels
+  
+```{r, specify-panel-labels, echo=FALSE}
+denres.labs <- c("LD-LR", "LD-HR", "HD-HR") # new
+names(denres.labs) <- c("LD-LR", "LD-HR", "HD-HR") # original
+
+soiltype.labs <- c("Heavy soil", "Medium soil", "Light soil") # new
+names(soiltype.labs) <- c("heavy", "medium", "light") # original
+```
+
+### 7.3.5. Combine plots
+-ve value means MIT wins (green = MIT wins, orange = MIT loses) 
+```{r}
+# north ----
+sources_n_1col <- ggplot(sources %>% dplyr::filter(region == "north"), 
+               aes(source_of_emissions, rotation_mean, colour = rotation_mean > 0)) + 
+  scale_colour_manual(values = c("#009E73", "#D55E00"), labels = c("MIT wins", "MIT loses")) +
+  facet_grid(soiltype ~ initDR, 
+             labeller = labeller(soiltype = soiltype.labs, initDR = denres.labs)#,
+             #scales="free_y"
+             ) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Source of GHG emissions", 
+       y = expression("Difference in GHG emissions (kgCO"[2]~"eq / ha)")
+       #y = expression(atop("Mean annual difference in",
+      #                    paste("GHG emissions (kgCO"["2"]~"eq / ha)"))) 
+       ) +
+  geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "none",
+        tag.text = element_text(size=22)
+        ) 
+
+# central ----
+sources_c_1col <- ggplot(sources %>% dplyr::filter(region == "central"), 
+               aes(source_of_emissions, rotation_mean, colour = rotation_mean > 0)) + 
+  scale_colour_manual(values = c("#009E73", "#D55E00"),
+                      labels = c("MIT wins", "MIT loses")) +
+  facet_grid(soiltype ~ initDR,
+             labeller = labeller(soiltype = soiltype.labs, 
+                                 initDR = denres.labs)
+             ) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Source of GHG emissions", 
+       y = expression("Difference in GHG emissions (kgCO"[2]~"eq / ha)")
+       #y = expression(atop("Mean annual difference in",
+      #                    paste("GHG emissions (kgCO"["2"]~"eq / ha)"))) 
+       ) +
+  geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "none"
+        )
+
+# east ----
+sources_e_1col <- ggplot(sources %>% dplyr::filter(region == "east"), 
+               aes(source_of_emissions, rotation_mean, colour = rotation_mean > 0)) + 
+  scale_colour_manual(values = c("#009E73", "#D55E00"),
+                      labels = c("MIT wins", "MIT loses")) +
+  facet_grid(soiltype ~ initDR,
+             labeller = labeller(soiltype = soiltype.labs, 
+                                 initDR = denres.labs)
+             ) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Source of GHG emissions", 
+       y = expression("Difference in GHG emissions (kgCO"[2]~"eq / ha)")
+       #y = expression(atop("Mean annual difference in",
+      #                    paste("GHG emissions (kgCO"["2"]~"eq / ha)"))) 
+       ) +
+  geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "bottom"
+        )
+
+# combine
+sources_1col <- sources_n_1col + sources_c_1col + sources_e_1col + plot_layout(ncol = 1) +
+  plot_annotation(
+    #tag_levels = 'a', 
+    tag_levels = list(c("(a) North", "(b) Central" , "(c) East")),
+    tag_prefix = '',  
+    tag_suffix = ''
+    ) & 
+  theme(plot.tag = element_text(size = 22, face="bold"))
+```
+
+
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/plot_all_outcomes_1col.png",
+#     height = 30, width = 10, units = "in", res = 300)
+# print(facetpanel_1col)
+# dev.off()
+
+pdf("../figures/emissions_sources_1col.pdf", height = 30, width = 10)
+print(sources_1col)
+dev.off()
+```
+
+## 7.4. Density data violin plot
+
+### 7.4.1. Using summarised data
+```{r}
+density_3dr <- readRDS("../data/density_data_summarised_3dr.rds") %>% 
+  dplyr::filter(scenario != "CWW")
+
+p <- ggplot(density_3dr %>% dplyr::filter(initDR3 == "LD-LR", year == 6), aes(factor(scenario), hvh_mean, fill = scenario))
+p + geom_violin() + 
+  geom_jitter(height = 0, width = 0.1)
+
+```
+
+### 7.4.2. Using raw simulation data
+Re-do it with raw simulations. Sum high and very high density proportions (-> hvh) across 3 density-resistance levels.  
+```{r}
+# tidied simulated density data, all 37 imputations
+res_tidy <- readRDS(file = "../data/simulation_results_tidy.rds") %>%  
+  dplyr::filter(scenario != "CWW") %>% 
+  dplyr::mutate( 
+    scenario = factor(scenario, levels = c("BAU", "MIT")),
+    initden = factor(initden, levels = c("VD", "HD", "MD", "LD")),
+    initres = factor(initres),
+    region = factor(region, levels = c("north", "central", "east")),
+    soiltype = factor(soiltype, levels = c("heavy", "medium", "light")),
+    initdenres = factor(initdenres, # specify order of levels
+                        levels = c("VD-HR", "HD-HR", "MD-HR", 
+                                   "MD-LR", "LD-HR", "LD-LR")),
+    initcondit = factor(initcondit, levels = c(
+      "n_h_VD-HR", "n_m_VD-HR", "n_l_VD-HR", 
+      "c_h_VD-HR", "c_m_VD-HR", "c_l_VD-HR",
+      "e_h_VD-HR", "e_m_VD-HR", "e_l_VD-HR",
+      
+      "n_h_HD-HR", "n_m_HD-HR", "n_l_HD-HR",
+      "c_h_HD-HR", "c_m_HD-HR", "c_l_HD-HR",
+      "e_h_HD-HR", "e_m_HD-HR", "e_l_HD-HR",
+      
+      "n_h_MD-HR", "n_m_MD-HR", "n_l_MD-HR",
+      "c_h_MD-HR", "c_m_MD-HR", "c_l_MD-HR",
+      "e_h_MD-HR", "e_m_MD-HR", "e_l_MD-HR",
+      
+      "n_h_MD-LR", "n_m_MD-LR", "n_l_MD-LR",
+      "c_h_MD-LR", "c_m_MD-LR", "c_l_MD-LR",
+      "e_h_MD-LR", "e_m_MD-LR", "e_l_MD-LR",
+      
+      "n_h_LD-HR", "n_m_LD-HR", "n_l_LD-HR",
+      "c_h_LD-HR", "c_m_LD-HR", "c_l_LD-HR",
+      "e_h_LD-HR", "e_m_LD-HR", "e_l_LD-HR",
+      
+      "n_h_LD-LR", "n_m_LD-LR", "n_l_LD-LR",
+      "c_h_LD-LR", "c_m_LD-LR", "c_l_LD-LR",
+      "e_h_LD-LR", "e_m_LD-LR", "e_l_LD-LR")),
+    strategy = factor(strategy)
+  ) %>%
+  ungroup() %>%
+  # collapse init den res to three levels
+  dplyr::mutate(
+    initDR3 = forcats::fct_recode(initdenres, # collapse categories
+                                  "LD-LR" = "MD-LR", # new, old
+                                  "LD-HR" = "MD-HR", 
+                                  "HD-HR" = "VD-HR"),
+    initDR3 = factor(initDR3, levels = c("LD-LR", "LD-HR", "HD-HR"))
+                ) %>% 
+  ungroup() %>% 
+  # sum the proportions of high and very high density black-grass:
+  rowwise() %>% 
+  dplyr::mutate(hvh = sum(c_across(h:v), na.rm = T)) %>%  # new category: h & vh
+  ungroup() %>% 
+  dplyr::rename(mds = mds.ms)
+```
+
+
+Plot LD-LR
+```{r}
+p_LDLR <- ggplot(res_tidy %>% filter(initDR3 == "LD-LR", year == 6), 
+             aes(x = factor(scenario), y = hvh, fill = scenario)) +  
+  geom_violin(alpha = 0.5) +  # Semi-transparent violin plots
+  geom_jitter(width = 0.1, height = 0, color = "lightgrey", size = 0.5, alpha = 0.5) +  # Tiny, light grey, transparent points
+  labs(x = "Scenario", y = "Proportion of field with high or very \nhigh density black-grass at year 6") +  # Custom axis titles
+  scale_fill_manual(values = c("MIT" = "#40B0A6", "BAU" = "#E1BE6A")) +  # Custom colors for MIT and BAU
+  theme_minimal() +  # Base minimal theme for a clean look
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),  # White background
+    panel.grid = element_blank(),  # Remove gridlines
+    axis.line = element_line(color = "black"),  # Black axis lines for both x and y
+    axis.ticks = element_line(color = "black"),  # Black axis ticks
+    axis.title=element_text(size=24),
+    axis.text.x=element_text(size=rel(2.2)),
+    axis.text.y=element_text(size=rel(2.2)),
+    plot.title = element_text(size = 22, face = "bold"),
+    #legend.title=element_text(size=22),
+    #legend.text=element_text(size=20),
+    legend.position = "none"  # Remove legend
+  ) + 
+  ggtitle("LD-LR") 
+
+p_LDLR
+```
+
+
+Plot LD-HR
+```{r}
+p_LDHR <- ggplot(res_tidy %>% filter(initDR3 == "LD-HR", year == 6), 
+             aes(x = factor(scenario), y = hvh, fill = scenario)) +  
+  geom_violin(alpha = 0.5) +  # Semi-transparent violin plots
+  geom_jitter(width = 0.1, height = 0, color = "lightgrey", size = 0.5, alpha = 0.5) +  # Tiny, light grey, transparent points
+  labs(x = "Scenario", y = "Proportion of field with high or \nvery high density black-grass at year 6") +  # Custom axis titles
+  scale_fill_manual(values = c("MIT" = "#40B0A6", "BAU" = "#E1BE6A")) +  # Custom colors for MIT and BAU
+  theme_minimal() +  # Base minimal theme for a clean look
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),  # White background
+    panel.grid = element_blank(),  # Remove gridlines
+    axis.line = element_line(color = "black"),  # Black axis lines for both x and y
+    axis.ticks = element_line(color = "black"),  # Black axis ticks
+    axis.title=element_text(size=24),
+    axis.title.y = element_blank(),
+    axis.text.x=element_text(size=rel(2.2)),
+    axis.text.y=element_text(size=rel(2.2)),
+    plot.title = element_text(size = 22, face = "bold"),
+    legend.position = "none"  # Remove legend
+  ) + 
+  ggtitle("LD-HR") 
+  
+p_LDHR
+```
+
+
+Plot HD-HR
+```{r}
+p_HDHR <- ggplot(res_tidy %>% filter(initDR3 == "HD-HR", year == 6), 
+             aes(x = factor(scenario), y = hvh, fill = scenario)) +  
+  geom_violin(alpha = 0.5) +  # Semi-transparent violin plots
+  geom_jitter(width = 0.1, height = 0, color = "lightgrey", size = 0.5, alpha = 0.5) +  # Tiny, light grey, transparent points
+  labs(x = "Scenario", y = "Proportion of field with high or \nvery high density black-grass at year 6") +  # Custom axis titles
+  scale_fill_manual(values = c("MIT" = "#40B0A6", "BAU" = "#E1BE6A")) +  # Custom colors for MIT and BAU
+  theme_minimal() +  # Base minimal theme for a clean look
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),  # White background
+    panel.grid = element_blank(),  # Remove gridlines
+    axis.line = element_line(color = "black"),  # Black axis lines for both x and y
+    axis.ticks = element_line(color = "black"),  # Black axis ticks
+    axis.title=element_text(size=24),
+    axis.title.y = element_blank(),
+    axis.text.x=element_text(size=rel(2.2)),
+    axis.text.y=element_text(size=rel(2.2)),
+    plot.title = element_text(size = 22, face = "bold"),
+    legend.position = "none"  # Remove legend
+  ) + 
+  ggtitle("HD-HR") 
+  
+p_HDHR
+```
+
+
+Create panel plot.
+```{r}
+bg_density_yr6 <- (p_LDLR + p_LDHR + p_HDHR) + plot_layout(axis_titles = "collect") 
+bg_density_yr6
+```
+
+
+
+
+Save panel plot.
+```{r}
+png("../figures/bg_density_yr6.png",
+    height = 6, width = 18, units = "in", res = 300)
+print(bg_density_yr6)
+dev.off()
+```
+
+
+How many points are in each violin plot?
+```{r}
+nrow(res_tidy %>% filter(scenario == "MIT", initDR3 == "HD-HR", year == 6))
+```
+
+```{r}
+n_distinct(res_tidy$initcondit) # i.e., e_l_HD-HR
+```
+
+```{r}
+unique(res_tidy$initcondit)
+```
+
+
+```{r}
+unique(res_tidy$initdenres) # i.e., LD-HR or VD-HR etc.
+```
+
+
+
+## 7.5. Diversification plot
+```{r}
+# load data
+strat <- read_xlsx("../data/strategy design summary.xlsx",2) %>% 
+  dplyr::mutate(
+    scenario = as.factor(scenario),
+    design_element = as.factor(design_element),
+    initdenres = as.factor(initdenres),
+    region = as.factor(region),
+    soil_type = as.factor(soil_type)
+  ) 
+ 
+glimpse(strat)
+```
+
+
+```{r}
+unique(strat$design_element)
+```
+
+Calculate total volume of glyphosate applied in a rotation.
+```{r}
+strat2 <- strat %>% 
+  # calculate total glyphosate volume in a rotation
+  filter(design_element == "gly_vol_yr") %>%
+  dplyr::group_by(scenario, design_element, initdenres, region, soil_type) %>% 
+  summarise(value = sum(value, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  dplyr::mutate(
+    # rename design element so it is now gly_rot_vol
+    design_element = forcats::fct_recode(design_element, "gly_rot_vol" = "gly_vol_yr"),
+    # add 'year' and 'scaled_value' columns so can bind to original data frame
+    year = 'NA'
+    ) %>% 
+  dplyr::relocate(year, .before = value)
+
+colnames(strat2)
+# join the two dataframes
+strat <- rbind(strat, strat2)
+
+strat <- strat %>% 
+  # Within each design element, scale values between 0 and 1:
+  group_by(design_element) %>%
+  dplyr::mutate(scaled_value = (value - min(value)) / (max(value) - min(value))) %>%
+  ungroup() 
+
+rm(strat2)
+
+glimpse(strat)
+```
+
+
+Plot several design elements together.
+```{r}
+strat %>%
+  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
+  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
+  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
+  dplyr:: group_by(ID) %>% 
+  dplyr::filter(design_element %in% c("tillage_depth_yr", "herb_applic_n_yr", "selherb_vol_yr", "gly_vol_yr" )) %>% #"aut_gly_n_yr", 
+  dplyr::mutate(design_element = factor(design_element, levels=c("tillage_depth_yr", "herb_applic_n_yr", "selherb_vol_yr",  "gly_vol_yr"))) %>% #"aut_gly_n_yr",
+  ggplot(aes(fill=design_element, y=scaled_value, x=initdenres)) +
+    #geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
+    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + #, outlier.colour="transparent"
+    scale_fill_viridis(discrete=T, name="",
+                       labels = c("Tillage depth", 
+                                  "Herbicide application frequency", 
+                                  "Selective herbicide volume", 
+                                  #"Autumn glyphosate application frequency",  
+                                  "Glyphosate volume")
+                       ) +
+    #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
+    #theme_ipsum()  +
+    theme_classic() +
+    xlab("") +
+    ylab("Scaled value") #+
+    #ylim(0,1)
+```
+
+```{r}
+unique(strat$design_element)
+```
+
+Another one for rotation values.
+```{r}
+
+
+strat3 %>%
+  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
+  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
+  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
+  dplyr:: group_by(ID) %>% 
+  dplyr::filter(design_element %in% c("diff_act_tot_n_rot", "diff_crops_tot_n_rot", "spring_crops_tot_n_rot", "ssb_tot_n_rot", "gly_rot_vol" )) %>%  
+  #dplyr::mutate(design_element = factor(design_element, levels=c("tillage_depth_yr", "herb_applic_n_yr", "selherb_vol_yr",  "gly_vol_yr"))) %>% 
+  ggplot(aes(fill=design_element, y=value, x=initdenres)) +
+    #geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
+    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + #, outlier.colour="transparent"
+    scale_fill_viridis(discrete=T, name="",
+                       labels = c("Number of different actives", 
+                                  "Number of different crops", 
+                                  "Number of spring crops", 
+                                  "Number of stale seed beds",  
+                                  "Glyphosate total volume")
+                       ) +
+    #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
+    #theme_ipsum()  +
+    theme_classic() +
+    xlab("") +
+    ylab("Value") #+
+    #ylim(0,1)
+```
+
+
+
+
+Plot a lollipop for rotation values?
+```{r}
+strat %>%
+  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>%
+  dplyr::mutate(initdenres = factor(initdenres, levels = c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
+  dplyr::mutate(ID = paste(scenario, initdenres)) %>%
+  dplyr::filter(design_element %in% c("tillage_depth_yr", "herb_applic_n_yr", "aut_gly_n_yr", 
+                                     "selherb_vol_yr", "gly_vol_yr", "diff_crops_tot_n_rot")) %>%
+  dplyr::group_by(scenario, initdenres, design_element) %>%
+  dplyr::summarize(mean_value = mean(scaled_value, na.rm = TRUE)) %>%  # Calculate mean for each group
+  ungroup() %>% 
+  group_by(design_element) %>%
+  dplyr::mutate(scaled_mean_value = (mean_value - min(mean_value)) / (max(mean_value) - min(mean_value))) %>%
+  ggplot(aes(x = initdenres, y = scaled_mean_value, color = design_element, group = design_element)) +
+  geom_segment(aes(xend = initdenres, yend = 0), size = 1, position = position_dodge(width = 0.8)) +  # Adjust line position to avoid overlap
+  geom_point(size = 4, aes(fill = design_element), shape = 21, stroke = 1.5, position = position_dodge(width = 0.8)) +  # Apply dodge to points too
+  scale_color_viridis(discrete = TRUE, name = "", 
+                      labels = c("Tillage depth", "Herbicide application frequency", 
+                                 "Autumn glyphosate application frequency", 
+                                 "Selective herbicide volume", "Glyphosate volume", 
+                                 "Number of different crops")) +
+  scale_fill_viridis(discrete = TRUE, guide = "none") +  # No fill color in the legend
+  theme_classic() +
+  xlab("") +
+  ylab("Mean Value") +
+  ylim(0, 1) +
+  theme(legend.title = element_blank(), 
+        legend.text = element_text(size = 10), 
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+ggplot(data, aes(x = Category, y = Value, color = Colour, group = SubCategory)) +
+  geom_point(size = 5) + # Points
+  geom_segment(aes(xend = Category, yend = 0), size = 1) + # Lines
+  facet_wrap(~ Category, scales = "free_y", ncol = 1) + # Facet the categories
+  theme_minimal() + # Clean theme
+  labs(title = "Lollipop Plot with Categories and Sub-categories",
+       x = "Category", y = "Value") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) # Rotate x-axis labels for readability
+
+strat %>%
+  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>%
+  dplyr::mutate(initdenres = factor(initdenres, levels = c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
+  dplyr::mutate(ID = paste(scenario, initdenres)) %>%
+  dplyr::filter(design_element %in% c("tillage_depth_yr", "herb_applic_n_yr", "aut_gly_n_yr", 
+                                     "selherb_vol_yr", "gly_vol_yr", "diff_crops_tot_n_rot")) %>%
+  dplyr::group_by(scenario, initdenres, design_element) %>%
+  dplyr::summarize(mean_value = mean(value, na.rm = TRUE)) %>%  # Calculate mean for each group
+  dplyr::mutate()
+  
+  ggplot(aes(x = initdenres, y = mean_value, color = design_element, group = design_element)) +
+  geom_segment(aes(xend = initdenres, yend = 0), size = 1, position = position_dodge(width = 0.8)) +  # Adjust line position to avoid overlap
+  geom_point(size = 4, aes(fill = design_element), shape = 21, stroke = 1.5, position = position_dodge(width = 0.8)) +  # Apply dodge to points too
+  scale_color_viridis(discrete = TRUE, name = "", 
+                      labels = c("Tillage depth", "Herbicide application frequency", 
+                                 "Autumn glyphosate application frequency", 
+                                 "Selective herbicide volume", "Glyphosate volume", 
+                                 "Number of different crops")) +
+  scale_fill_viridis(discrete = TRUE, guide = "none") +  # No fill color in the legend
+  theme_classic() +
+  xlab("") +
+  ylab("Mean Value") +
+  ylim(0, 1) +
+  theme(legend.title = element_blank(), 
+        legend.text = element_text(size = 10), 
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+
+
+Re-do with design element on x axis and bars showing initdenres.
+```{r}
+strat %>%
+  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
+  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
+  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
+  dplyr:: group_by(ID) %>% 
+  dplyr::filter(design_element %in% c("tillage_depth_yr", "herb_applic_n_yr", "aut_gly_n_yr", "selherb_vol_yr", "gly_vol_yr", "diff_crops_tot_n_rot" )) %>% 
+  ggplot(aes(fill=initdenres, y=scaled_value, x=design_element)) +
+    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="transparent") +
+    #geom_point(color="grey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
+    scale_fill_viridis(discrete=T, name="") +
+    #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
+    #theme_ipsum()  +
+    theme_classic() +
+    xlab("") +
+    ylab("Scaled value") +
+    ylim(0,1) +
+  scale_x_discrete(labels = c(
+    "aut_gly_n_yr" = "# autumn glyphosate\napp",
+    "diff_crops_tot_n_rot" = "# diff\ncrops rot",
+    "gly_vol_yr" = "glyphosate volume\nper yr",
+    "herb_applic_n_yr" = "# herb app\nper yr",
+    "selherb_vol_yr" = "vol selherb\nper yr",
+    "tillage_depth_yr" = "tillage depth"
+  ))
+```
+
+# Cite packages
+```{r}
+cite_packages(citation.style = "nature", out.dir = ".")
+```
+See here https://pakillo.github.io/grateful/index.html for instructions on using `grateful`.
+
+
+
+# Superseded
+## 3.3. NOT USED - Calculate % change from individual years
+Here, I calculate the difference between BAU and MIT for each year, then calculate the % change for each year, then take the average % change.
+```{r}
+# pc_change <- c_gp_yld %>%
+#   
+#   # 1. Calculate percentage change for each year of each scenario
+#   dplyr::group_by(region, soiltype, initDR, year) %>% 
+#   dplyr::mutate(
+#     
+#     # gross profit % change
+#     gp_pc_change = (oc/gp[scenario == "BAU"])*100, # opportunity cost is already the difference in gross profit 
+#     
+#     # calories % change
+#     cal_pc_change = (calories_diff/calories[scenario == "BAU"])*100,    
+#     
+#     # land use % change
+#     lu_pc_change = (land_use_diff/land_use[scenario == "BAU"])*100,  
+#     
+#     # carbon emissions % change
+#     c_pc_change = (c_emiss_diff/c_total[scenario == "BAU"])*100
+#     
+#   ) %>% 
+#   ungroup() %>% 
+#   
+#   # 2. calculate min and max values (this grouping will give range across years)
+#   dplyr::group_by(scenario, region, soiltype, initDR, year) %>% 
+#   dplyr::mutate(
+#     
+#     # gross profit difference min & max
+#     gp_diff_min = min(oc, na.rm = TRUE),
+#     gp_diff_max = max(oc, na.rm = TRUE),
+#     
+#     # calories difference min & max
+#     calories_diff_min = min(calories_diff, na.rm = TRUE),
+#     calories_diff_max = max(calories_diff, na.rm = TRUE),
+#     
+#     # land use difference min & max
+#     land_use_diff_min = min(land_use_diff, na.rm = TRUE),
+#     land_use_diff_max = max(land_use_diff, na.rm = TRUE),
+#     
+#     # GHG difference min & max
+#     c_emiss_diff_min = min(c_emiss_diff, na.rm = TRUE),
+#     c_emiss_diff_max = max(c_emiss_diff, na.rm = TRUE)
+#     
+#   ) %>% 
+#   ungroup() %>% 
+#   
+#   # 3. Calculate mean for each level of initDR
+#   dplyr::filter(scenario == "MIT") %>% 
+#   dplyr::group_by(initDR) %>% 
+#   dplyr::mutate(
+#     # gross profit mean, min, max % change
+#     gp_pcchange_mean = mean(gp_pc_change),
+#     gp_pcchange_min = min(gp_pc_change),
+#     gp_pcchange_max = max(gp_pc_change),
+#     
+#     # calories mean min, max % change
+#     cal_pcchange_mean = mean(cal_pc_change),
+#     cal_pcchange_min = min(cal_pc_change),
+#     cal_pcchange_max = max(cal_pc_change),
+#     
+#     # land use mean min, max % change
+#     lu_pcchange_mean = mean(lu_pc_change),
+#     lu_pcchange_min = min(lu_pc_change),
+#     lu_pcchange_max = max(lu_pc_change),
+#     
+#     # carbon emissions mean min, max % change
+#     c_pcchange_mean = mean(c_pc_change),
+#     c_pcchange_min = min(c_pc_change),
+#     c_pcchange_max = max(c_pc_change)
+#     
+#   ) %>% 
+#   
+#   #Select just useful columns and filter out duplicates
+#   dplyr::select(initDR, contains("pcchange")) %>% 
+#   dplyr::distinct(initDR, .keep_all = TRUE) %>% 
+#   arrange(initDR)
+# 
+# pc_change
+```
+
+## 3.4. Save output as .csv
+```{r}
+#write.csv(pc_change, "../output/summarytable_from_indiv_years.csv", row.names = FALSE)
+```
+
+## 7.alt Mean difference in C emissions per initDR
+This gives min and max values for any single year of a management strategy. *This is NOT what I use in the paper.*  
+```{r}
+c_gp_yld %>%
+  dplyr::filter(scenario == 'MIT') %>% 
+  dplyr::group_by(initDR) %>% 
+  dplyr::summarize(
+    #gp_mean = mean(gp),
+    #cal_mean = mean(calories),
+    c_emiss_meandiff = mean(c_emiss_diff),
+    c_emiss_min = min(c_emiss_diff),
+    c_emiss_max = max(c_emiss_diff)
+  ) %>% 
+  ungroup() 
+``` 
+### 7.2.2. Difference in gross profit
++ve value means MIT wins (green = MIT wins, orange = MIT loses)  
+```{r, echo=FALSE}
+facet_oc <- ggplot(trdoff_rot %>% dplyr::filter(scenario == "MIT"), 
+               aes(initDR, oc_mean, colour = oc_mean < 0)) + 
+  scale_colour_manual(values = c("#009E73", "#D55E00"),
+                      #name = "MIT wins?",
+                      labels = c("MIT wins", "MIT loses")) +
+                      #labels = c("Yes", "No")) +
+  facet_grid(soiltype ~ region,
+             labeller = labeller(soiltype = soiltype.labs, 
+                                 region = region.labs)#,
+             #scales="free_y"
+             ) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Initial density and resistance of Black-grass population", 
+       y = "Mean annual difference in gross profit (£/ha)" 
+       ) +
+  geom_pointrange(aes(ymin = oc_min, ymax = oc_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank()
+        )
+
+facet_oc
+```
+  
+  
+
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/plot_oc.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(facet_oc)
+# dev.off()
+
+pdf("../figures/plot_oc.pdf", height = 15, width = 15)
+print(facet_oc)
+dev.off()
+```
+
+
+
+### 7.2.3. Difference in yield (calories)
++ve value means MIT wins
+```{r, echo=FALSE}
+facet_cal <- ggplot(trdoff_rot %>% dplyr::filter(scenario == "MIT"), 
+               aes(initDR, calories_diff_mean, colour = calories_diff_mean < 0)) + 
+  scale_colour_manual(values = c("#009E73", "#D55E00"),
+                      labels = c("MIT wins", "MIT loses")) +
+  facet_grid(soiltype ~ region,
+             labeller = labeller(soiltype = soiltype.labs, 
+                                 region = region.labs)#,
+             #scales="free_y"
+             ) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Initial density and resistance of Black-grass population", 
+       y = "Mean annual difference in calories produced (kcal/ha)" 
+       ) +
+  geom_pointrange(aes(ymin = calories_diff_min, ymax = calories_diff_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank()
+        )
+
+facet_cal
+```
+  
+  
+
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/plot_cal.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(facet_cal)
+# dev.off()
+
+pdf("../figures/plot_cal.pdf", height = 15, width = 15)
+print(facet_cal)
+dev.off()
+```
+
+
+
+### 7.2.4. Difference in GHG emissions
+-ve value means MIT wins
+```{r, echo=FALSE}
+facet_c <- ggplot(trdoff_rot %>% dplyr::filter(scenario == "MIT"), 
+               aes(initDR, c_emiss_diff_mean, colour = c_emiss_diff_mean > 0)) + 
+    scale_colour_manual(values = c("#009E73", "#D55E00"),
+                      labels = c("MIT wins", "MIT loses")) +
+  facet_grid(soiltype ~ region,
+             labeller = labeller(soiltype = soiltype.labs, 
+                                 region = region.labs)#,
+             #scales="free_y"
+             ) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Initial density and resistance of Black-grass population", 
+       y = expression("Mean annual difference in GHG emissions (kgCO"["2"]~"eq/ha)") 
+       ) +
+  geom_pointrange(aes(ymin = c_emiss_diff_min, ymax = c_emiss_diff_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank()
+        )
+facet_c
+```
+  
+  
+
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/plot_GHG.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(facet_c)
+# dev.off()
+
+pdf("../figures/plot_GHG.pdf", height = 15, width = 15)
+print(facet_c)
+dev.off()
+```
+
+
+
+
+### 7.2.5. alt - Square
+```{r}
+# # opp costs ----
+# a_oc <- ggplot(trdoff_rot %>% dplyr::filter(scenario == "MIT"), 
+#                aes(initDR, oc_mean, colour = oc_mean < 0)) + 
+#   scale_colour_manual(values = c("#009E73", "#D55E00"),
+#                       labels = c("MIT wins", "MIT loses")) +
+#   facet_grid(soiltype ~ region,
+#              labeller = labeller(soiltype = soiltype.labs, region = region.labs)) +
+#   scale_x_discrete(guide = guide_axis(angle = 45)) +
+#   labs(x = "Initial density and resistance of Black-grass population", 
+#        y = "Mean annual difference in gross profit (£/ha)") +
+#   geom_pointrange(aes(ymin = oc_min, ymax = oc_max), 
+#                   position=position_dodge(width=0.3),
+#                   size = 0.9) +
+#   geom_hline(yintercept=0, linetype="dashed", color = "black") +
+#   theme_bw() + 
+#   theme(strip.placement = 'outside',
+#         strip.text.x = element_text(size = 22),
+#         strip.text.y = element_text(size = 22),
+#         axis.title=element_text(size=24),
+#         axis.text.x=element_text(size=rel(2.2)),
+#         axis.text.y=element_text(size=rel(2.2)),
+#         legend.text=element_text(size=22),
+#         legend.title = element_blank(),
+#         legend.position = "none"
+#         ) 
+# 
+# # yield ----
+# b_cal <- ggplot(trdoff_rot %>% dplyr::filter(scenario == "MIT"), 
+#                aes(initDR, calories_diff_mean, colour = calories_diff_mean < 0)) + 
+#   scale_colour_manual(values = c("#009E73", "#D55E00"),
+#                       labels = c("MIT wins", "MIT loses")) +
+#   facet_grid(soiltype ~ region,
+#              labeller = labeller(soiltype = soiltype.labs, region = region.labs)) +
+#   scale_x_discrete(guide = guide_axis(angle = 45)) +
+#   labs(x = "Initial density and resistance of Black-grass population", 
+#        y = "Mean annual difference in calories produced (kcal/ha)") +
+#   geom_pointrange(aes(ymin = calories_diff_min, ymax = calories_diff_max), 
+#                   position=position_dodge(width=0.3),
+#                   size = 0.9) +
+#   geom_hline(yintercept=0, linetype="dashed", color = "black") +
+#   theme_bw() + 
+#   theme(strip.placement = 'outside',
+#         strip.text.x = element_text(size = 22),
+#         strip.text.y = element_text(size = 22),
+#         axis.title=element_text(size=24),
+#         axis.text.x=element_text(size=rel(2.2)),
+#         axis.text.y=element_text(size=rel(2.2)),
+#         legend.text=element_text(size=22),
+#         legend.title = element_blank(),
+#         legend.position = "none"
+#         )
+# 
+# # GHG emissions ----
+# c_ghg <- ggplot(trdoff_rot %>% dplyr::filter(scenario == "MIT"), 
+#                aes(initDR, c_emiss_diff_mean, colour = c_emiss_diff_mean > 0)) + 
+#     scale_colour_manual(values = c("#009E73", "#D55E00"),
+#                       labels = c("MIT wins", "MIT loses")) +
+#   facet_grid(soiltype ~ region,
+#              labeller = labeller(soiltype = soiltype.labs, 
+#                                  region = region.labs)) +
+#   scale_x_discrete(guide = guide_axis(angle = 45)) +
+#   labs(x = "Initial density and resistance of Black-grass population", 
+#        y = expression("Mean annual difference in GHG emissions (kgCO"["2"]~"eq/ha)")) +
+#   geom_pointrange(aes(ymin = c_emiss_diff_min, ymax = c_emiss_diff_max), 
+#                   position=position_dodge(width=0.3),
+#                   size = 0.9) +
+#   geom_hline(yintercept=0, linetype="dashed", color = "black") +
+#   theme_bw() + 
+#   theme(strip.placement = 'outside',
+#         strip.text.x = element_text(size = 22),
+#         strip.text.y = element_text(size = 22),
+#         axis.title=element_text(size=24),
+#         axis.text.x=element_text(size=rel(2.2)),
+#         axis.text.y=element_text(size=rel(2.2)),
+#         legend.text=element_text(size=22),
+#         legend.title = element_blank(),
+#         legend.position = "none"
+#         ) 
+# 
+# # get legend
+# g_legend<-function(a.gplot){
+#     tmp <- ggplot_gtable(ggplot_build(a.gplot))
+#     leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+#     legend <- tmp$grobs[[leg]]
+#     legend
+# }
+# 
+# legend <- g_legend(facet_oc)
+# 
+# # combine
+# facetpanel <- a_oc + b_cal + c_ghg + legend + plot_layout(ncol = 2)
+```
+
+
+
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/plot_all_outcomes_square.png",
+#     height = 20, width = 20, units = "in", res = 300)
+# print(facetpanel)
+# dev.off()
+
+# pdf("../figures/plot_all_outcomes_square.pdf", height = 20, width = 20)
+# print(facetpanel)
+# dev.off()
+```
+
+
+### 7.3.2. Plot north region 
+-ve value means MIT wins (green = MIT wins, orange = MIT loses)  
+```{r, echo=FALSE}
+eissions_sources_north <- ggplot(sources %>% dplyr::filter(region == "north"), 
+               aes(source_of_emissions, rotation_mean, colour = rotation_mean > 0)) + 
+  scale_colour_manual(values = c("#009E73", "#D55E00"),
+                      #name = "MIT wins?",
+                      labels = c("MIT wins", "MIT loses")) +
+                      #labels = c("Yes", "No")) +
+  facet_grid(soiltype ~ initDR,
+             labeller = labeller(soiltype = soiltype.labs, 
+                                 initDR = denres.labs)#,
+             #scales="free_y"
+             ) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Source of GHG emissions", 
+       y = expression("Mean annual difference in GHG emissions (kgCO"["2"]~"eq / ha)") 
+       ) +
+  geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank()
+        )
+
+eissions_sources_north
+```
+ 
+
+
+### 7.3.3. Plot central region 
+-ve value means MIT wins (green = MIT wins, orange = MIT loses)  
+```{r, echo=FALSE}
+eissions_sources_central <- ggplot(sources %>% dplyr::filter(region == "central"), 
+               aes(source_of_emissions, rotation_mean, colour = rotation_mean > 0)) + 
+  scale_colour_manual(values = c("#009E73", "#D55E00"),
+                      labels = c("MIT wins", "MIT loses")) +
+  facet_grid(soiltype ~ initDR,
+             labeller = labeller(soiltype = soiltype.labs, 
+                                 initDR = denres.labs)
+             ) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Source of GHG emissions", 
+       y = expression("Mean annual difference in GHG emissions (kgCO"["2"]~"eq / ha)") 
+       ) +
+  geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank()
+        )
+
+eissions_sources_central
+```
+ 
+
+
+### 7.3.4. Plot east region 
+-ve value means MIT wins (green = MIT wins, orange = MIT loses)  
+```{r, echo=FALSE}
+eissions_sources_east <- ggplot(sources %>% dplyr::filter(region == "east"), 
+               aes(source_of_emissions, rotation_mean, colour = rotation_mean > 0)) + 
+  scale_colour_manual(values = c("#009E73", "#D55E00"),
+                      labels = c("MIT wins", "MIT loses")) +
+  facet_grid(soiltype ~ initDR,
+             labeller = labeller(soiltype = soiltype.labs, 
+                                 initDR = denres.labs)
+             ) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Source of GHG emissions", 
+       y = expression("Mean annual difference in GHG emissions (kgCO"["2"]~"eq / ha)") 
+       ) +
+  geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank()
+        )
+
+eissions_sources_east
+```
+  

@@ -1,0 +1,417 @@
+---
+title: "Summarise and visualise"
+author: "Alexa Varah"
+date: "2023-06-28"
+output: html_document
+---
+
+# 1. Intro
+
+## 1.1 Data structure
+
+I have one estimate per initDR-region-soiltype-year combination.
+I have one estimate per rotation (i.e. the mean across 6 years) for each initDR-region-soiltype combination.  
+I have three estimates per soil type (i.e. across regions).  
+I have three estimates per region (i.e. across soil types).  
+I have nine estimates per initDR (i.e. across regions and soil types).  
+I have 27 estimates per scenario (i.e. across regions, soil types, and initDR).  
+
+Standard deviation = how widely scattered the measurements are round the mean (i.e. the variation in the sample).  
+Standard error = uncertainty around the estimate of the mean. (The standard error of the mean of one sample is an estimate of the standard deviation that would be obtained from the means of a large number of samples drawn from that population.)   
+95%CI = range of values that describes the uncertainty surrounding an estimate: approximately 95 of the 100 confidence intervals will contain the true mean value  
+
+# 2. Load packages and data
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 2.1. Load packages
+```{r, include=FALSE}
+rm(list = ls(all = TRUE)) # make sure envt is clear
+library(tidyverse)
+library(viridis)
+```
+
+
+## 2.2. Load functions
+```{r load-functions, include=FALSE}
+# function to count complete observations
+nobs <- function(x) length(x[!is.na(x)])
+```
+
+## 2.3. Load data
+```{r, include=FALSE}
+c_emis <- read.csv("../output/carbon_results_tidy.csv", header = T) %>% 
+  dplyr::mutate(
+    scenario = factor(scenario, levels = c("BAU", "MIT", "CWW")),
+    region = factor(region, levels = c("north", "central", "east")),
+    soiltype = factor(soiltype, levels = c("heavy", "medium","light")),
+    initDR = factor(initDR, levels = c("LD-LR", "LD-HR", "HD-HR"))
+    )
+
+str(c_emis)
+```
+  
+  
+Check which order levels are in.
+```{r}
+levels(c_emis$initDR)
+```
+
+
+
+# 3 Emissions - summarise and visualise
+
+## 3.1. Table - Mean emissions per scenario
+
+Calculate mean annual C emissions first and then summarize across regions, soil types and initial den-res categories. 
+
+This will give variation due to region, soil type and initial den-res rather than the CI also including year-to-year variation.
+```{r}
+c_emis %>% 
+  # find rotation mean first
+  dplyr::group_by(scenario, region, soiltype, initDR) %>% 
+  dplyr::summarize(
+    t_mean = mean(total, na.rm = TRUE),
+    t_ci_l = mean(total, na.rm = TRUE) - 
+      (1.96 * sd(total, na.rm = TRUE) / sqrt(length(total))),
+    t_ci_u = mean(total, na.rm = TRUE) + 
+      (1.96 * sd(total, na.rm = TRUE) / sqrt(length(total)))
+    ) %>% 
+  #ungroup() %>% # makes no difference whether this line is run or not
+  # then find scenario mean
+  dplyr::group_by(scenario) %>% 
+  dplyr::summarize(
+    total_C_emiss = mean(t_mean, na.rm = TRUE),
+    tc_95ci_l = mean(t_mean, na.rm = TRUE) - 
+      (1.96 * sd(t_mean, na.rm = TRUE) / sqrt(length(t_mean))),
+    tc_95ci_u = mean(t_mean, na.rm = TRUE) + 
+      (1.96 * sd(t_mean, na.rm = TRUE) / sqrt(length(t_mean)))
+    )
+```
+  
+## 3.2. Box plot - Emissions by scenario
+
+```{r}
+c_emis %>%
+  ggplot( aes(x=scenario, y=total, fill=scenario)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE) +
+    geom_jitter(aes(color=soiltype), size=0.7, alpha=0.5) +
+  xlab("Scenario") +
+  ylab("Carbon emissions (kgC02eq/ha)") +
+  stat_boxplot(geom = "errorbar", # Error bars
+               width = 0.05)   # Bars width
+
+
+```
+  
+  
+See ?stat_boxplot for definitions of bits of the boxplot.  
+Error bars show:  
+ymin lower whisker = smallest observation greater than or equal to lower hinge - 1.5 * IQR
+ymax upper whisker = largest observation less than or equal to upper hinge + 1.5 * IQR
+...(where IQR is the inter-quartile range, or distance between the first and third quartiles)  
+  
+The lower and upper hinges correspond to the first and third quartiles (the 25th and 75th percentiles).  
+
+
+## 3.3. Table - Emissions by scenario and init den-res
+
+```{r, message=FALSE}
+c_emis %>% 
+  # find rotation mean first
+  dplyr::group_by(scenario, region, soiltype, initDR) %>% 
+   dplyr::summarize(
+    t_mean = mean(total, na.rm = TRUE),
+    t_ci_l = mean(total, na.rm = TRUE) - 
+      (1.96 * sd(total, na.rm = TRUE) / sqrt(length(total))),
+    t_ci_u = mean(total, na.rm = TRUE) + 
+      (1.96 * sd(total, na.rm = TRUE) / sqrt(length(total)))
+    ) %>% 
+  # then find scenario mean
+  dplyr::group_by(scenario, initDR) %>% 
+  dplyr::summarize(
+    total_C_emiss = mean(t_mean, na.rm = TRUE),
+    tc_95ci_l = mean(t_mean, na.rm = TRUE) - 
+      (1.96 * sd(t_mean, na.rm = TRUE) / sqrt(length(t_mean))),
+    tc_95ci_u = mean(t_mean, na.rm = TRUE) + 
+      (1.96 * sd(t_mean, na.rm = TRUE) / sqrt(length(t_mean)))
+    )
+```
+
+## 3.4. Box plot - Emissions by scenario and init den-res
+
+Box plot.
+```{r}
+c_emis %>%
+  dplyr::mutate(
+    initDR = factor(initDR, levels = c("LD-LR", "LD-HR", "HD-HR")),
+    scenario_initDR = paste(scenario, initDR, sep = "_"),
+    scenario_initDR = factor(scenario_initDR, 
+                             levels = c("BAU_LD-LR", "BAU_LD-HR", "BAU_HD-HR",
+                                        "CWW_LD-LR", "CWW_LD-HR", "CWW_HD-HR",
+                                        "MIT_LD-LR", "MIT_LD-HR", "MIT_HD-HR")
+                             )) %>% 
+  ggplot(aes(x=scenario_initDR, y=total, fill=scenario)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE) +
+    geom_jitter(aes(color=soiltype), size=0.7, alpha=0.5) +
+  xlab("Scenario") +
+  ylab("Carbon emissions (kgC02eq/ha)") +
+  stat_boxplot(geom = "errorbar", # Error bars
+               width = 0.1) +  # Bars width
+  theme(axis.text.x = element_text(angle = 45))
+
+# useful grey fill colours
+#cols <- c("#CFD8DC", "#90A4AE", "#455A64")
+```
+
+
+
+
+## 3.5. Caclulate rotation means
+
+```{r}
+rotn_means <- c_emis %>% 
+  dplyr::group_by(scenario,region,soiltype,initDR) %>% 
+  dplyr::summarise(across(fert_prod:total,.fns = list(
+      mean=~mean(.x, na.rm = TRUE), 
+      sd=~sd(.x, na.rm = TRUE), 
+      se=~sd(.x, na.rm = TRUE)/sqrt(length(.x)),
+      n=~nobs(.x),
+      ci_l=~mean(.x, na.rm = TRUE) - (1.96 * sd(.x, na.rm = TRUE)/sqrt(length(.x))),
+      ci_u=~mean(.x, na.rm = TRUE) + (1.96 * sd(.x, na.rm = TRUE)/sqrt(length(.x))))))
+```
+
+
+## 3.6. Box plot - Emissions by source for BAU and MIT
+
+Make data long.
+```{r}
+c_emis_long <- c_emis %>%
+  pivot_longer(!c(ID, scenario, region, soiltype, initDR, year), names_to = "source", values_to = "emissions")
+```
+
+
+Plot (panel plot).
+```{r}
+c_emis_long %>%
+  dplyr::filter(!scenario == "CWW") %>% # not economically viable
+  dplyr::filter(!source == "c_stock_change") %>% # C stock change is all zero
+  #dplyr::mutate(ID = paste(scenario, source, sep = "_")) %>% 
+  ggplot( aes(x=source, y=emissions, fill=source)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE) +
+    #geom_jitter(aes(color=soiltype), size=0.7, alpha=0.5) +
+  xlab("Source of emissions within scenario") +
+  ylab("Carbon emissions (kgC02eq/ha)") +
+  stat_boxplot(geom = "errorbar", # Error bars
+               width = 0.05) +  # Bars width
+  theme(axis.text.x = element_text(angle = 45)) + 
+  facet_grid(. ~ scenario)
+```
+
+Biggest source in both BAU and MIT is fertiliser production and application, as some MIT scenarios use less fertiliser. This biggest change is through fertiliser production. This is because MIT has more legumes and one strategy has an 18 month fallow, so less fertiliser used.  
+  
+Pesticide emissions include embodied emissions (manufacture) as well as fuel for pesticide application.  
+
+
+# 4. Difference in emissions (MIT - BAU) - summarise and visualise
+
+## 4.1. Calculate difference
+Here I do MIT - BAU, so if the result is negative it means MIT had lower emissions than BAU.
+```{r}
+d_e <- c_emis %>% 
+  dplyr::filter(!scenario=="CWW") %>% 
+  dplyr::group_by(region, soiltype, initDR, year) %>% 
+  dplyr::mutate(diff_in_emiss = total - total[scenario == "BAU"]) %>% 
+  dplyr::filter(!scenario=="BAU") %>% 
+  dplyr::mutate(ID = paste(region, soiltype, initDR, sep = "_"))
+
+d_e
+  #dplyr::group_by(scenario, initcondit) %>% # find rotation mean
+  #dplyr::summarise(
+  #  oc = mean(opp_cost, na.rm = TRUE),
+  #  oc_ci_l = mean(opp_cost, na.rm = TRUE) - 
+  #    (1.96 * (sd(opp_cost, na.rm = TRUE) / sqrt(nobs(opp_cost)))),
+  #  oc_ci_u = mean(opp_cost, na.rm = TRUE) + 
+  #    (1.96 * (sd(opp_cost, na.rm = TRUE) / sqrt(nobs(opp_cost))))
+  #  ) %>% 
+  #tidyr::separate(initcondit, c("region", "soiltype", "initdenres"), "_") %>% 
+  #dplyr::filter(!scenario=="MIT") %>% 
+  #dplyr::mutate(
+  #  soiltype = factor(soiltype, levels = c("heavy", "medium", "light")),
+  #  region = factor(region, levels = c("north", "central", "east")),
+  #  initdenres = factor(initdenres, levels = c("LD-HR", "HD-HR"))
+  #  )
+```
+
+
+### Save tidy results.
+```{r}
+write.csv(d_e, "../output/difference_in_C_emissions.csv", row.names = FALSE)
+```
+
+
+## 4.2. Line plot - yearly difference by initDR and soil type
+
+First summarise data.
+```{r}
+diff_yr_soil <- d_e %>% 
+  dplyr::group_by(soiltype, initDR, year) %>% # find annual mean
+  dplyr::summarise(
+    c_diff = mean(diff_in_emiss, na.rm = TRUE),
+    c_diff_ci_l = mean(diff_in_emiss, na.rm = TRUE) - 
+      (1.96 * (sd(diff_in_emiss, na.rm = TRUE) / sqrt(nobs(diff_in_emiss)))),
+    c_diff_ci_u = mean(diff_in_emiss, na.rm = TRUE) + 
+      (1.96 * (sd(diff_in_emiss, na.rm = TRUE) / sqrt(nobs(diff_in_emiss))))
+    ) %>% 
+  dplyr::mutate(
+    soiltype = factor(soiltype, levels = c("heavy", "medium", "light")),
+    initDR = factor(initDR, levels = c("LD-LR", "LD-HR", "HD-HR")),
+    ID = paste(initDR, soiltype, sep = "_")
+    )
+
+diff_yr_soil
+```
+
+
+```{r}
+ggplot(data=diff_yr_soil, aes(x=year, y=c_diff, group=ID)) +
+  #geom_line(linetype="dashed", color="blue", size=1.2)+
+  geom_line(aes(linetype=initDR))+
+  #geom_point(color="red", size=3)
+  geom_point(aes(shape=soiltype))
+```
+
+
+
+
+Mostly, MIT has lower emissions than BAU (i.e. values are below zero).  
+
+Hard to look at this.  
+
+
+
+## 4.3. Line plot - yearly difference by initDR
+
+First summarise data.
+```{r}
+diff_yr <- d_e %>% 
+  dplyr::group_by(initDR, year) %>% # find rotation mean
+  dplyr::summarise(
+    c_diff = mean(diff_in_emiss, na.rm = TRUE),
+    c_diff_ci_l = mean(diff_in_emiss, na.rm = TRUE) - 
+      (1.96 * (sd(diff_in_emiss, na.rm = TRUE) / sqrt(nobs(diff_in_emiss)))),
+    c_diff_ci_u = mean(diff_in_emiss, na.rm = TRUE) + 
+      (1.96 * (sd(diff_in_emiss, na.rm = TRUE) / sqrt(nobs(diff_in_emiss))))
+    ) %>% 
+  dplyr::mutate(
+    initDR = factor(initDR, levels = c("LD-LR", "LD-HR", "HD-HR"))
+    )
+
+diff_yr
+```
+
+
+
+Then specify the plot.
+```{r}
+ggplot(data=diff_yr, aes(x=year, y=c_diff, group=initDR)) +
+  geom_line(aes(color=initDR, linetype=initDR)) +
+  #scale_color_manual(values=c("#CFD8DC", "#90A4AE", "#455A64")) +
+  geom_point(aes(color=initDR, shape=initDR)) +
+  #geom_pointrange(aes(ymin = c_diff_ci_l, 
+  #                    ymax = c_diff_ci_u,
+  #                    color = initDR,
+  #                    shape = initDR),
+  #                position=position_dodge(width=0.2),
+  #                size = 0.3
+  #                )
+  geom_ribbon(aes(ymin = c_diff_ci_l, ymax = c_diff_ci_u, fill = initDR), 
+              alpha = 0.1, # controls transparency
+              linetype = "blank" # gets rid of upper and lower lines
+              ) +
+  #scale_fill_manual(
+  #  name = "Scenario",
+  #  values = c("#CFD8DC", 
+  #             "#90A4AE", 
+  #             "#455A64"  
+  #             )
+  #  ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    axis.text.y = element_text(size=rel(2)),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=14),
+    #legend.position = c(0.2,0.85)#,
+    #legend.background = element_rect(fill = "white", color = "black")
+    ) +
+  geom_hline(yintercept = 0, colour = "black")
+```
+  
+Anything below the linze at y=0 means that MIT has lower C emissions than BAU.  
+Shows that mostly, MIT scenarios have lower carbon emissions than BAU scenarios.  
+
+
+## 4.4. Scatter plot - difference by initDR
+First summarise data.
+```{r}
+diff_initDR <- d_e %>% 
+  dplyr::group_by(initDR) %>% # find rotation mean
+  dplyr::summarise(
+    c_diff = mean(diff_in_emiss, na.rm = TRUE),
+    c_diff_ci_l = mean(diff_in_emiss, na.rm = TRUE) - 
+      (1.96 * (sd(diff_in_emiss, na.rm = TRUE) / sqrt(nobs(diff_in_emiss)))),
+    c_diff_ci_u = mean(diff_in_emiss, na.rm = TRUE) + 
+      (1.96 * (sd(diff_in_emiss, na.rm = TRUE) / sqrt(nobs(diff_in_emiss))))
+    ) %>% 
+  dplyr::mutate(
+    initDR = factor(initDR, levels = c("LD-LR", "LD-HR", "HD-HR"))
+    )
+
+diff_initDR
+```
+
+
+
+Then specify the plot.
+```{r}
+ggplot(data=diff_initDR, aes(x=initDR, y=c_diff)) +
+  #geom_line(aes(color=initDR, linetype=initDR)) +
+  #scale_color_manual(values=c("#CFD8DC", "#90A4AE", "#455A64")) +
+  geom_point(aes(color=initDR, shape=initDR)) +
+  geom_pointrange(aes(ymin = c_diff_ci_l, 
+                      ymax = c_diff_ci_u,
+                      color = initDR,
+                      shape = initDR),
+                  #position=position_dodge(width=0.2),
+                  #size = 0.3
+                  ) +
+  #scale_color_brewer(palette="Accent") +
+  #scale_color_brewer(palette="Set2") +
+  #scale_color_brewer(palette="Spectral", direction=-1) +
+  scale_color_viridis_d() +
+  #scale_color_brewer() +
+  labs(
+    x = "Initial density and resistance", 
+    y = "Difference in carbon emissions,\nMIT - BAU (kgC02eq/ha)") +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    axis.text.y = element_text(size=rel(2)),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=14),
+    legend.position = "none"
+    #legend.position = c(0.2,0.85)#,
+    #legend.background = element_rect(fill = "white", color = "black")
+    ) +
+  geom_hline(yintercept = 0, colour = "black")
+```
+
+MIT has lower C emissions than BAU, and within initDR, HD-HR fields (i.e. the most diverse rotations) have the lowest C emissions/ largest drop compared to BAU.  
