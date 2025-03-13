@@ -1019,7 +1019,7 @@ unique(res_tidy$initdenres) # i.e., LD-HR or VD-HR etc.
 
 
 
-## 7.5. Diversification plot
+## 7.5. Diversification plots
 ```{r}
 # load data
 strat <- read_xlsx("../data/strategy design summary.xlsx",2) %>% 
@@ -1039,22 +1039,26 @@ glimpse(strat)
 unique(strat$design_element)
 ```
 
-Calculate total volume of glyphosate applied in a rotation.
+Calculate total volume of glyphosate, total vol selective herbs, and total number of herb applications, in a rotation. 
 ```{r}
 strat2 <- strat %>% 
-  # calculate total glyphosate volume in a rotation
-  filter(design_element == "gly_vol_yr") %>%
+  # calculate rotation totals
+  filter(design_element %in% c("gly_vol_yr", "selherb_vol_yr", "herb_applic_n_yr")) %>%
   dplyr::group_by(scenario, design_element, initdenres, region, soil_type) %>% 
   summarise(value = sum(value, na.rm = TRUE)) %>% 
   ungroup() %>% 
   dplyr::mutate(
-    # rename design element so it is now gly_rot_vol
-    design_element = forcats::fct_recode(design_element, "gly_rot_vol" = "gly_vol_yr"),
+    # rename design elements
+    design_element = forcats::fct_recode(design_element, 
+                                         "gly_rot_vol" = "gly_vol_yr",
+                                         "selherb_rot_vol" = "selherb_vol_yr",
+                                         "herb_applic_n_rot" = "herb_applic_n_yr"),
     # add 'year' and 'scaled_value' columns so can bind to original data frame
     year = 'NA'
     ) %>% 
   dplyr::relocate(year, .before = value)
 
+colnames(strat)
 colnames(strat2)
 # join the two dataframes
 strat <- rbind(strat, strat2)
@@ -1071,7 +1075,7 @@ glimpse(strat)
 ```
 
 
-Plot several design elements together.
+Plot some of the yearly design elements.
 ```{r}
 strat %>%
   dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
@@ -1098,142 +1102,235 @@ strat %>%
     #ylim(0,1)
 ```
 
+
 ```{r}
 unique(strat$design_element)
 ```
 
-Another one for rotation values.
+Plot scaled values of a combination of things:
 ```{r}
-
-
-strat3 %>%
+strat %>%
   dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
   dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
   dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
   dplyr:: group_by(ID) %>% 
-  dplyr::filter(design_element %in% c("diff_act_tot_n_rot", "diff_crops_tot_n_rot", "spring_crops_tot_n_rot", "ssb_tot_n_rot", "gly_rot_vol" )) %>%  
-  #dplyr::mutate(design_element = factor(design_element, levels=c("tillage_depth_yr", "herb_applic_n_yr", "selherb_vol_yr",  "gly_vol_yr"))) %>% 
-  ggplot(aes(fill=design_element, y=value, x=initdenres)) +
+  dplyr::filter(design_element %in% c("spring_crops_tot_n_rot", "diff_crops_tot_n_rot", "ssb_tot_n_rot", "gly_rot_vol", "selherb_rot_vol" )) %>% #"aut_gly_n_yr", 
+  dplyr::mutate(design_element = factor(design_element, levels=c("spring_crops_tot_n_rot", "diff_crops_tot_n_rot", "ssb_tot_n_rot",  "gly_rot_vol", "selherb_rot_vol"))) %>%
+  ggplot(aes(fill=design_element, y=scaled_value, x=initdenres)) +
     #geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
     geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + #, outlier.colour="transparent"
+    # scale_fill_manual(values=c("#332288", "#44AA99", "#88CCEE", "#DDCC77", "#CC6677"),
+    #                   labels = c("Number of spring crops", 
+    #                               "Number of different crops", 
+    #                               "Number of stale seed beds",
+    #                               "Glyphosate volume",
+    #                               "Selective herbicide volume")) +
     scale_fill_viridis(discrete=T, name="",
-                       labels = c("Number of different actives", 
-                                  "Number of different crops", 
-                                  "Number of spring crops", 
-                                  "Number of stale seed beds",  
-                                  "Glyphosate total volume")
+                       labels = c("Number of spring crops",
+                                  "Number of different crops",
+                                  "Number of stale seed beds",
+                                  "Glyphosate volume",
+                                  "Selective herbicide volume")
                        ) +
     #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
     #theme_ipsum()  +
     theme_classic() +
     xlab("") +
-    ylab("Value") #+
+    ylab("Scaled value") +
+    #ylim(0,1)
+    scale_x_discrete(labels=c("LD-LR" = "MIT\nLD-LR", "LD-HR" = "MIT\nLD-HR",
+                              "HD-HR" = "MIT\nHD-HR")) +
+    # annotate("text", x=0.7, y=0.13, label="Spring crops", size = 3.2, angle=90, colour = "red") +
+    # annotate("text", x=0.85, y=0.145, label="Different crops", size = 3.2, angle=90) +
+    # annotate("text", x=1, y=0.155, label="Stale seed beds", size = 3.2, angle=90) +
+    # annotate("text", x=1.15, y=0.23, label="Glyphosate volume", size = 3.2, angle=90) +    
+    # annotate("text", x=1.29, y=0.66, label="Selective herb. volume", size = 3.2, angle=90) +
+  
+    geom_segment(aes(x = 0.635, y = 0, xend = 0.76, yend = 0, colour = "#332288"))
+
+```
+
+
+
+Annual volumes of herbicide applied.
+```{r}
+strat %>%
+  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
+  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
+  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
+  dplyr:: group_by(ID) %>% 
+  dplyr::filter(design_element %in% c("selherb_vol_yr", "gly_vol_yr" )) %>% 
+  dplyr::mutate(design_element = factor(design_element, levels=c("selherb_vol_yr",  "gly_vol_yr"))) %>% 
+  ggplot(aes(fill=design_element, y=value, x=initdenres)) +
+    #geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
+    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + 
+    scale_fill_manual(values=c("#332288", "#117733"),
+                      labels = c("Selective herbicide", 
+                                  "Glyphosate")) +
+    # scale_fill_manual(values=c("#999999", "#E69F00"),
+    #                   labels = c("Selective herbicide", 
+    #                               "Glyphosate")) + #, "#56B4E9"
+    # scale_fill_viridis(discrete=T, 
+    #                    #option = "D", #(this is the)
+    #                    name="",
+    #                    labels = c("Selective herbicide", 
+    #                               "Glyphosate")
+    #                    ) +
+    #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
+    #theme_ipsum()  +
+    theme_classic() +
+    theme(legend.title=element_blank()) +
+    xlab("") +
+    ylab(expression("Volume "*("l "*ha^{-1}*yr^{-1})))
+    #ylab(bquote('Volume'~(l^-1)))
+    #ylab("Volume (l/ ha/ yr)") #+
+    #ylim(0,1)
+```
+
+This plot is good as it shows, compared to BAU, sometimes reduced selective herbicide volume but increased glyphosate volume.
+
+
+Rotation herbicide volumes.
+```{r}
+strat %>%
+  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
+  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
+  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
+  dplyr:: group_by(ID) %>% 
+  dplyr::filter(design_element %in% c("selherb_rot_vol", "gly_rot_vol" )) %>% 
+  dplyr::mutate(design_element = factor(design_element, levels=c("selherb_rot_vol",  "gly_rot_vol"))) %>% 
+  ggplot(aes(fill=design_element, y=value, x=initdenres)) +
+    #geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
+    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + 
+    scale_fill_manual(values=c("#332288", "#117733"),
+                      labels = c("Selective herbicide", 
+                                  "Glyphosate")) +
+    theme_classic() +
+    theme(legend.title=element_blank()) +
+    xlab("") +
+    ylab(expression("Volume "*("l "*ha^{-1})))
+```
+
+
+
+Plot rotation active ingredients and stale seed beds.
+```{r}
+strat %>%
+  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
+  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
+  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
+  dplyr:: group_by(ID) %>% 
+  dplyr::filter(design_element %in% c("herb_applic_n_rot", "diff_act_tot_n_rot", "ssb_tot_n_rot")) %>%
+  dplyr::mutate(design_element = factor(design_element, levels=c("herb_applic_n_rot", "diff_act_tot_n_rot", "ssb_tot_n_rot"))) %>% 
+  ggplot(aes(fill=design_element, y=value, x=initdenres)) +
+    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + #, outlier.colour="transparent"
+    scale_fill_manual(values=c("#CC6677", "#DDCC77", "#AA4499"), #"#AA4499", "#443F41"
+                      labels = c(
+                        "Herbicide applications",
+                        "Active ingredients",
+                        "Stale seedbed")
+                      ) +
+    # scale_fill_viridis(discrete=T, name="",
+    #                    labels = c("Number of different actives", 
+    #                               "Number of different crops", 
+    #                               "Number of spring crops", 
+    #                               "Number of stale seed beds"#,  
+    #                               #"Glyphosate total volume"
+    #                               )
+    #                    ) +
+    geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
+    #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
+    #theme_ipsum()  +
+    theme_classic() +
+    theme(legend.title=element_blank()) +
+    xlab("") +
+    ylab("Count (total number in rotation)") #+
+    #ylim(0,1)
+```
+
+This doesn't really work. Which is the most interesting?
+
+Plot rotation crop diversity.  
+Number of spring crops  
+Number of different crops  
+```{r}
+strat %>%
+  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
+  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
+  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
+  dplyr:: group_by(ID) %>% 
+  dplyr::filter(design_element %in% c("diff_crops_tot_n_rot", "spring_crops_tot_n_rot")) %>% 
+  dplyr::mutate(design_element = factor(design_element, levels=c("diff_crops_tot_n_rot", "spring_crops_tot_n_rot"))) %>% 
+  ggplot(aes(fill=design_element, y=value, x=initdenres)) +
+    
+    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + #, outlier.colour="transparent"
+    scale_fill_manual(values=c("#88CCEE", "#44AA99"),
+                       labels = c("Different crops",
+                                  "Spring crops")
+                       ) +
+    # scale_fill_viridis(discrete=T, name="",
+    #                    labels = c("n spring crops", 
+    #                               "n different crops")
+    #                    ) +
+    #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
+    #theme_ipsum()  +
+    geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
+  
+    theme_classic() +
+    theme(legend.title=element_blank()) +
+    xlab("") +
+    ylab("Count (total number in rotation)") #+
     #ylim(0,1)
 ```
 
 
 
 
-Plot a lollipop for rotation values?
-```{r}
-strat %>%
-  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>%
-  dplyr::mutate(initdenres = factor(initdenres, levels = c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
-  dplyr::mutate(ID = paste(scenario, initdenres)) %>%
-  dplyr::filter(design_element %in% c("tillage_depth_yr", "herb_applic_n_yr", "aut_gly_n_yr", 
-                                     "selherb_vol_yr", "gly_vol_yr", "diff_crops_tot_n_rot")) %>%
-  dplyr::group_by(scenario, initdenres, design_element) %>%
-  dplyr::summarize(mean_value = mean(scaled_value, na.rm = TRUE)) %>%  # Calculate mean for each group
-  ungroup() %>% 
-  group_by(design_element) %>%
-  dplyr::mutate(scaled_mean_value = (mean_value - min(mean_value)) / (max(mean_value) - min(mean_value))) %>%
-  ggplot(aes(x = initdenres, y = scaled_mean_value, color = design_element, group = design_element)) +
-  geom_segment(aes(xend = initdenres, yend = 0), size = 1, position = position_dodge(width = 0.8)) +  # Adjust line position to avoid overlap
-  geom_point(size = 4, aes(fill = design_element), shape = 21, stroke = 1.5, position = position_dodge(width = 0.8)) +  # Apply dodge to points too
-  scale_color_viridis(discrete = TRUE, name = "", 
-                      labels = c("Tillage depth", "Herbicide application frequency", 
-                                 "Autumn glyphosate application frequency", 
-                                 "Selective herbicide volume", "Glyphosate volume", 
-                                 "Number of different crops")) +
-  scale_fill_viridis(discrete = TRUE, guide = "none") +  # No fill color in the legend
-  theme_classic() +
-  xlab("") +
-  ylab("Mean Value") +
-  ylim(0, 1) +
-  theme(legend.title = element_blank(), 
-        legend.text = element_text(size = 10), 
-        axis.text.x = element_text(angle = 45, hjust = 1))
-
-
-
-ggplot(data, aes(x = Category, y = Value, color = Colour, group = SubCategory)) +
-  geom_point(size = 5) + # Points
-  geom_segment(aes(xend = Category, yend = 0), size = 1) + # Lines
-  facet_wrap(~ Category, scales = "free_y", ncol = 1) + # Facet the categories
-  theme_minimal() + # Clean theme
-  labs(title = "Lollipop Plot with Categories and Sub-categories",
-       x = "Category", y = "Value") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) # Rotate x-axis labels for readability
-
-strat %>%
-  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>%
-  dplyr::mutate(initdenres = factor(initdenres, levels = c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
-  dplyr::mutate(ID = paste(scenario, initdenres)) %>%
-  dplyr::filter(design_element %in% c("tillage_depth_yr", "herb_applic_n_yr", "aut_gly_n_yr", 
-                                     "selherb_vol_yr", "gly_vol_yr", "diff_crops_tot_n_rot")) %>%
-  dplyr::group_by(scenario, initdenres, design_element) %>%
-  dplyr::summarize(mean_value = mean(value, na.rm = TRUE)) %>%  # Calculate mean for each group
-  dplyr::mutate()
-  
-  ggplot(aes(x = initdenres, y = mean_value, color = design_element, group = design_element)) +
-  geom_segment(aes(xend = initdenres, yend = 0), size = 1, position = position_dodge(width = 0.8)) +  # Adjust line position to avoid overlap
-  geom_point(size = 4, aes(fill = design_element), shape = 21, stroke = 1.5, position = position_dodge(width = 0.8)) +  # Apply dodge to points too
-  scale_color_viridis(discrete = TRUE, name = "", 
-                      labels = c("Tillage depth", "Herbicide application frequency", 
-                                 "Autumn glyphosate application frequency", 
-                                 "Selective herbicide volume", "Glyphosate volume", 
-                                 "Number of different crops")) +
-  scale_fill_viridis(discrete = TRUE, guide = "none") +  # No fill color in the legend
-  theme_classic() +
-  xlab("") +
-  ylab("Mean Value") +
-  ylim(0, 1) +
-  theme(legend.title = element_blank(), 
-        legend.text = element_text(size = 10), 
-        axis.text.x = element_text(angle = 45, hjust = 1))
-
-
-```
-
-
-
-Re-do with design element on x axis and bars showing initdenres.
+Plot frequencies.  
+Number of herbicide applications per year.
+Number of actives per year.  
+Number autumn glyphosate applications per year.
 ```{r}
 strat %>%
   dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
   dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
   dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
   dplyr:: group_by(ID) %>% 
-  dplyr::filter(design_element %in% c("tillage_depth_yr", "herb_applic_n_yr", "aut_gly_n_yr", "selherb_vol_yr", "gly_vol_yr", "diff_crops_tot_n_rot" )) %>% 
-  ggplot(aes(fill=initdenres, y=scaled_value, x=design_element)) +
-    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="transparent") +
-    #geom_point(color="grey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
-    scale_fill_viridis(discrete=T, name="") +
+  dplyr::filter(design_element %in% c("herb_applic_n_yr", "actives_n_yr")) %>% 
+  dplyr::mutate(design_element = factor(design_element, levels=c("herb_applic_n_yr", "actives_n_yr"))) %>% 
+  ggplot(aes(fill=design_element, y=value, x=initdenres)) +
+    #geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
+    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + #, outlier.colour="transparent"
+    scale_fill_manual(values=c("#DDCC77", "#CC6677"),
+                       labels = c("Herbicide applications",
+                                  "Active ingredients")
+                       ) +
+    # scale_fill_viridis(discrete=T, name="",
+    #                    labels = c("Herbicide applications", 
+    #                               "Active ingredients", 
+    #                               "Autumn glyphosate",
+    #                               "Stale seedbeds")
+    #                    ) +
     #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
     #theme_ipsum()  +
     theme_classic() +
+    theme(legend.title=element_blank()) +
     xlab("") +
-    ylab("Scaled value") +
-    ylim(0,1) +
-  scale_x_discrete(labels = c(
-    "aut_gly_n_yr" = "# autumn glyphosate\napp",
-    "diff_crops_tot_n_rot" = "# diff\ncrops rot",
-    "gly_vol_yr" = "glyphosate volume\nper yr",
-    "herb_applic_n_yr" = "# herb app\nper yr",
-    "selherb_vol_yr" = "vol selherb\nper yr",
-    "tillage_depth_yr" = "tillage depth"
-  ))
+    ylab("Application frequency (number / year)") +
+    scale_y_continuous(breaks=seq(0,8,2))
+    #ylim(0,8)
 ```
+
+
+This one maybe not very useful. I think the number of herbicide applications rose because there were more stale seedbeds. Might be better just to show that.  
+Active ingredients per year doesn't change much overall (mean goes down with increasing BG severity), but earlier plot shows more actives used across a rotation. So farmers use slightly fewer actives per crop but more different crops, which allows more different actives.  
+
+
+```{r}
+unique(strat$design_element)
+```
+
+
 
 # Cite packages
 ```{r}
