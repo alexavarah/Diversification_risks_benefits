@@ -1,0 +1,338 @@
+---
+title: "Tidy trade-offs data"
+author: "Alexa Varah"
+date: "2024-05-19"
+output: html_document
+---
+
+
+# 1. Load packages and data
+
+```{r setup}
+#knitr::opts_chunk$set(echo = TRUE) #causes your code to be included in the knitted document
+```
+
+## 1.1. Load packages
+```{r}
+rm(list = ls(all = TRUE)) # clear envt
+library(tidyverse)
+#library(viridis)
+#library(ggtext)
+```
+
+
+## 1.2. Load functions
+Function to count complete observations.
+```{r load-functions}
+nobs <- function(x) length(x[!is.na(x)])
+```
+
+# 2. Load & tidy data
+
+For ECOMOD data, opportunity cost was calculated as MIT - BAU, so a negative value means BAU wins.  
+For carbon data, diff in emissions is calculated as MIT - BAU, so a negative value means MIT wins (MIT emissions < BAU emission).
+ 
+We ran the Cool Farm Tool on three initial density-resistance levels. ECOMOD output is for 6 density resistance levels (as we could differentiate soil type and weed density more finely). Collapse ECOMOD output back to the initial three levels once I've calculated yield in calories.  
+
+```{r}
+# Yield and gross profit estimates
+weighted_curr <- readRDS("../data/weighted-gp-yield-oc_orig.rds") %>% 
+  dplyr::mutate(
+    scenario = factor(scenario, levels=c("BAU", "MIT", "CWW")),
+    region = forcats::fct_recode(region,
+                                  "north" = "n", # new, old
+                                  "central" = "c", 
+                                  "east" = "e"),
+    region = factor(region, levels = c("north", "central","east")),
+    soiltype = forcats::fct_recode(soiltype,
+                                  "heavy" = "h", # new, old
+                                  "medium" = "m", 
+                                  "light" = "l"),
+    soiltype = factor(soiltype, levels = c("heavy", "medium","light")),
+    initcondit = factor(initcondit)
+  ) %>% 
+  dplyr::ungroup() %>% 
+  #Replace the instances where barley was used as a proxy for oats (in ECOMOD) 
+  #so that I can convert the oat yield to calories correctly 
+  #(oats and barley have different calorie contents).
+  dplyr::mutate(crop = case_when(
+    ID == 'MIT_e_h_VD-HR_4' ~ 'springoats',
+    ID == 'MIT_e_h_HD-HR_4' ~ 'springoats',
+    ID == 'MIT_e_m_VD-HR_4' ~ 'springoats',
+    ID == 'MIT_e_m_HD-HR_4' ~ 'springoats',
+    ID == 'MIT_e_l_VD-HR_5' ~ 'springoats',
+    ID == 'MIT_e_l_HD-HR_5' ~ 'springoats',
+    TRUE ~ as.character (crop))) %>% 
+  dplyr::filter(!scenario=="CWW") %>% 
+  droplevels() %>%
+  dplyr::ungroup() 
+
+# Carbon emissions estimates
+c_emis <- read.csv("../output/carbon_results.csv", header = T) %>% 
+  dplyr::rename(ID = Field.ID,
+                fert_prod = "Fertiliser.production..kgC02eq.ha.",
+                fert_appl = "Field.N20.from.fertiliser..kgC02eq.ha.",
+                pesticide = "Pesticide..kgC02eq.ha.",
+                c_stock_change = "C.stock.changes..kgC02eq.ha.",
+                field_energy_use = "Field.energy.use..kgC02eq.ha.",
+                total = "Total..kgC02eq.ha.") %>%
+  dplyr::mutate(to_split = ID) %>% 
+  separate(to_split, 
+                  into = c("scenario", "region", "soiltype",
+                           "initDR", "year"),sep = "_") %>% 
+  dplyr::mutate(
+    scenario = factor(scenario, levels = c("BAU", "MIT", "CWW")),
+    region = forcats::fct_recode(region,
+                                  "north" = "n", # new, old
+                                  "central" = "c", 
+                                  "east" = "e"),
+    region = factor(region, levels = c("north", "central", "east")),
+    soiltype = forcats::fct_recode(soiltype,# rename levels of 'soiltype'
+                                  "heavy" = "h", # new, old
+                                  "medium" = "m", 
+                                  "light" = "l"),
+    soiltype = factor(soiltype, levels = c("heavy", "medium","light")),
+    initDR = factor(initDR, levels = c("LD-LR", "LD-HR", "HD-HR"))
+    ) %>% 
+  dplyr::ungroup() %>% 
+  #calculate diff in emissions between BAU and other scenarios
+  #do MIT - BAU, so negative value means MIT emissions < BAU emissions
+  dplyr::filter(!scenario=="CWW") %>% 
+  droplevels() %>% 
+  dplyr::group_by(region, soiltype, initDR, year) %>% 
+  dplyr::mutate(diff_in_emiss = total - total[scenario == "BAU"]) %>% 
+  dplyr::relocate(ID, scenario, region, soiltype, initDR, year) %>%
+  dplyr::ungroup()
+```
+  
+
+# 3. Calculate calories and land use variables
+We use FAO data on crop nutritive values to convert crop mass into calories (f I want I could convert calories to kjoules: 1 calorie = 4.19 kilojoules).  
+Source: [FAO. Food balance sheets: A handbook. Rome: FAO; 2001](https://www.fao.org/4/X9892E/X9892e05.htm#P8217_125315)  
+  
+## 3.1. Create data frame of crop nutritive values.  
+```{r}
+crop <- weighted_curr %>% 
+  dplyr::distinct(crop)
+
+# winterwheat 334, wosr 494, setaside 0, sosr 494, springbarley 332, springbeans 343, driedpeas 346, springlinseed 498, springoats 385, sugarbeet 70, winterbarley 332
+# NB! Google AI says marrowfat peas have calorie content 287cal/100g. Marrowfats are a typep of dried pea. FAO data only gives one type of dried pea. Just use that.
+kcal_per_100g <- c(334, 494, 0, 494, 332, 343, 346, 498, 385, 70, 332)
+
+# Join the variables to create a data frame
+calories_data <- data.frame(crop, kcal_per_100g)
+
+rm(crop, kcal_per_100g)
+```
+
+*Also what about maize? Haven't been able to estimate maize yields. I could use average maize yield??*  
+No, ignore maize. Keep as spring oilseed rape.
+
+```{r}
+levels(factor(weighted_curr$crop))
+```
+
+
+## 3.2. Convert to calories & land use, and calculate diffs between scenarios  
+  
+The crop nutritive values are given in **kcal per 100 grams dry matter**.   
+ECOMOD estimates grain yield in **dry weight** (as opposed to harvested weight, which is at 15% moisture), so we can apply the conversion to calories directly to our yield estimates.  
+
+* Yield estimates from ECOMOD are in t/ha.  
+* To convert t/ha to g/m2 you *multiply by 100*.  
+  
+* Say my yield is 6 t/ha, then this is 6*100 = 600 g/m2. 
+* And say the crop contained 10 kcal / 100g dry matter, then this is 10/100 = 0.1 kcal / g.  
+* So, the sum would be:  
+(6*100) * 10/100 = 60 kcal/m2  
+600 * 0.1 = 60 kcal/m2  
+  
+This is the same as doing 6 * 10. So rather than multiplying one by 100 and dividing the other by 100, you can just multiply the t/ha value by the kcal/100g value, and the result will be in units of kcal/m2.  
+
+* To convert to kcal/ha:  
+* There are 10,000 square metres in a hectare.  
+* So, to convert kcal/m2 to kcal/ha, multiply by 10,000:  
+60 * 10000 = 600,000 kcal/ha
+
+* This means that to convert dry matter in t/ha to kcal when the kcal is given per 100 g dry mater, you can just multiply the t/ha value by the kcal value and the resulting units will be kcal per m2.  
+  
+Could also convert to 'land use'. 'Our world in data' (https://ourworldindata.org/grapher/land-use-kcal-poore) says: Land use is measured in meters squared (m²) required to produce 1000 kcal of a given food product. (Calories and kcal are the same thing).  
+```{r}
+weighted_curr_kcal <- left_join(weighted_curr, calories_data, by = "crop") %>% 
+ 
+  # convert yields to calories
+  dplyr::mutate(
+    yld_kcal_m2 = wtd_yield*kcal_per_100g,
+    landuse_m2_to_prod_1000kc = 1000/yld_kcal_m2,
+    # replace `inf` values in landuse with zero
+    landuse_m2_to_prod_1000kc = replace(landuse_m2_to_prod_1000kc, is.infinite(landuse_m2_to_prod_1000kc), 0)
+  ) %>% 
+  dplyr::relocate(yld_kcal_m2:landuse_m2_to_prod_1000kc, .after = wtd_yield) %>% 
+  
+  # calculate MIT-BAU for calories and land use
+  dplyr::group_by(imp, region, soiltype, initdenres, year) %>% 
+  dplyr::mutate(
+    yld_kcal_diff = yld_kcal_m2 - yld_kcal_m2[scenario == "BAU"],
+    landuse_diff = landuse_m2_to_prod_1000kc - landuse_m2_to_prod_1000kc[scenario == "BAU"]
+  ) %>% 
+  ungroup() %>% 
+  
+  # calculate percentage change
+  # dplyr::group_by(imp, region, soiltype, initdenres, year) %>% 
+  # dplyr::mutate(
+  #   percent_change_cal = (yld_kcal_diff/yld_kcal_m2[scenario == "BAU"])*100,
+  #   percent_change_landuse = (landuse_diff/landuse_m2_to_prod_1000kc[scenario == "BAU"])*100,
+  #   percent_change_gp = (wtd_opp_cost/wtd_gp[scenario == "BAU"])*100
+  # ) %>% 
+  # ungroup() %>%
+
+  # tidy
+  dplyr::select(-kcal_per_100g) %>% 
+  dplyr::relocate(yld_kcal_diff, .after = yld_kcal_m2) %>% 
+  dplyr::relocate(landuse_diff, .after = landuse_m2_to_prod_1000kc) %>% 
+  dplyr::rename(ww_prod_cost = wtd_prod_cost)
+```
+
+
+Manually check % change is calculated correctly.
+```{r}
+# weighted_curr_kcal %>% 
+#   dplyr::filter(imp == 1 & initcondit == "n_h_VD-HR" & year == 2) %>% 
+#   dplyr::select(imp, ID, wtd_gp, percent_change_gp, yld_kcal_m2, percent_change_cal)
+```
+  
+Yep, calculated correctly.  
+  
+Were `inf` values in landuse replaced with zero (i.e., for setaside)?  
+```{r}
+weighted_curr_kcal %>% 
+  dplyr::filter(crop == 'setaside') %>% 
+  dplyr::select(ID, crop, yld_kcal_m2, landuse_m2_to_prod_1000kc)
+```
+
+**Don't try and do anything re animal feed vs human consumption, it's over-complicating things**
+
+**Could think about how much of the wheat or other crops are being used for animal feed. This will make a difference to how many people they can feed. Could look at this paper https://iopscience.iop.org/article/10.1088/1748-9326/8/3/034015 who defined yield in terms of people nourished per hectare. See their SI here https://content.cld.iop.org/journals/1748-9326/8/3/034015/revision1/erl472821suppdata.pdf?Expires=1716136301&Signature=dcLX9el0brQ1yf4gDa6MmKkmwQAlbPy2CvRkyqLou6zyST1gFTFHP7s~yEIdTPIrcFnaDS0yePWeumLQqwTjvg8I8aw9KPBVumR1i4UV7ev29rUWoFbdGEvQleG5v1B9~1j1owCr-olwoS2CRYw8jDlsbnax6sjeXEwP6gZL8-pD3kKihdTrZ9GXsJQPcTBRPmsEGlUH5fqA7x96EgbuUPM59MMbxTUK7Y6I1GFjCevy~Pp3EEHIXjOR0VEyKKuB0106GLt2l8hOmACsZcqjkd1H1h-hgvRZpDUczEk0Cm9d5rvI3owwxTPK~iIoOpC4VolK10zF5yTALrsvIH7SNA__&Key-Pair-Id=KL1D8TIY3N7T8.**  
+
+**Also, this [report](https://www.wwf.org.uk/press-release/transform-uk-farmland-boost-food-resilience-tackle-nature-crisis) from WWF says that 40% of the UK’s most productive agricultural land is used to grow food for farm animals instead of people, and that a lower intensity approach to farming... would create space for nature and boost the resilience of the UK’s food system.  IF 40% of wheat is going to feed animals, this lowers the number of people fed per hectare. But I've assumed that the wheat produced in my analyses is for human consumption I think. What difference does it make to ECOMOD if it's feed wheat? Different inputs?**   
+
+
+
+
+# 4. Join, summarise
+
+## 4.1. Collapse back to three initDR levels & calculate mean values across imputations
+Collapse the economic data back to the three initial density-resistance levels presented to farmers (LD-LR, LD-HR, HD-HR).
+```{r}
+econ_curr <- weighted_curr_kcal %>% 
+  
+  # Collapse initial density and resistance states to original three
+  dplyr::mutate(
+    initDR = forcats::fct_recode(initdenres, # collapse categories
+                                  "LD-LR" = "MD-LR", # new, old
+                                  "LD-HR" = "MD-HR", 
+                                  "HD-HR" = "VD-HR"),
+    initDR = factor(initDR, levels = c("LD-LR", "LD-HR", "HD-HR"))
+                ) %>% 
+  
+  # Calculate mean values across imputations for each year of each strategy
+  group_by(scenario, year, initDR, region, soiltype) %>% 
+  dplyr::mutate(
+    gp = mean(wtd_gp),
+    oc = mean(wtd_opp_cost),
+    #gp_pc_change = mean(percent_change_gp),
+    yield = mean(wtd_yield),
+    calories = mean(yld_kcal_m2), # energy in crops, in kcal per m2
+    calories_diff = mean(yld_kcal_diff),
+    #cal_pc_change = mean(percent_change_cal),
+    land_use = mean(landuse_m2_to_prod_1000kc), # number sq m to prod 1000kcal
+    land_use_diff = mean(landuse_diff),
+    #land_use_pc_change = mean(percent_change_landuse),
+    ww_yield_mean = mean(ww_yield),
+    ww_pc = mean(ww_prod_cost),
+    cyl = mean(wtd_cyl),
+    output = mean(wtd_output),
+    potential_output = mean(potential_output),
+    fuel_cost = mean(wtd_fuelcost),
+    labour_cost = mean(wtd_labcost),
+    operations_cost = mean(wtd_opscost)
+    ) %>% 
+  ungroup() %>% 
+  distinct(scenario, year, initDR, region, soiltype, .keep_all = TRUE) %>% 
+  dplyr::select(scenario, region, soiltype, initDR, year, crop, 
+                gp:operations_cost, fertcost:other) %>% 
+  dplyr::rename(#new name, old name
+    ww_yield = ww_yield_mean,
+    fertiliser_cost = fertcost,
+    seed_cost = seedcost,
+    herbicide_cost = herbcost,
+    sundry_cost = sundry,
+    variables_cost = varcost,
+    other_cost = other) %>% 
+  dplyr::mutate(scenario = factor(scenario, levels = c("BAU", "MIT"))) %>% 
+  
+  # create new ID with the new collapsed initDR levels
+  dplyr::mutate(
+    ID = paste(scenario, substring(region, 1, 1), substring(soiltype, 1, 1), initDR, year, sep = "_")
+  ) %>% 
+  dplyr::relocate(ID) %>% 
+  ungroup()
+```
+ 
+```{r}
+# econ_curr %>% 
+#   dplyr::filter(region == "north", soiltype == "heavy", initDR == "LD-HR", year == 2) %>% 
+#   dplyr::select(gp, gp_pc_change)
+```
+ 
+  
+
+
+## 4.2. Calculate percent change for carbon emissions
+```{r}
+# c_emis_pc <- c_emis %>%
+#   group_by(year, initDR, region, soiltype) %>%
+#   dplyr::mutate(
+#     percent_change_carbon = (diff_in_emiss/total[scenario == "BAU"])*100,
+#   )
+```
+  
+  
+Manually check % change is calculated correctly.
+```{r}
+# c_emis_pc %>% 
+#   dplyr::filter(region == "north" & soiltype == "heavy" & initDR == "HD-HR" & year == 1) %>% 
+#   dplyr::select(ID, total, percent_change_carbon)
+``` 
+  
+Correctly calculated.  
+
+  
+## 4.3. Join full data frames
+```{r}
+c_gp_yld <- left_join(econ_curr, c_emis, by="ID") %>% 
+  dplyr::select(-contains(".y")) %>% # remove duplicated columns
+  dplyr::rename_at(vars(everything()), ~ sub(".x", "", .x)) %>% # remove '.x' in column names
+  #dplyr::rename_at(vars(everything()), ~ sub("mean", "", .x)) %>% # remove 'mean' in column names
+  dplyr::rename( # rename carbon variables so it's clear they are estimates of C emissions
+    c_fert_prod = fert_prod,
+    c_fert_appl = fert_appl,
+    c_pesticide = pesticide,
+    c_field_energy_use = field_energy_use,
+    c_total = total,
+    c_emiss_diff = diff_in_emiss#, 
+    #c_pc_change = percent_change_carbon
+  ) 
+
+rm(c_emis, econ_curr, weighted_curr_kcal, calories_data, weighted_curr)
+# rm(c_emis_pc)
+```
+
+# 5. Save tidy data
+```{r}
+write.csv(c_gp_yld, "../output/trade_offs_tidy.csv", row.names = FALSE)
+```
+
+
+
+
