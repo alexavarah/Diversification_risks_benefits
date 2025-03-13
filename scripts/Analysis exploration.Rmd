@@ -1,0 +1,1903 @@
+---
+title: "Analyse trade-offs"
+author: "Alexa Varah"
+date: "2023-06-17"
+output: html_document
+---
+
+# 1. Intro
+  
+This script ignores the 'continuous winter wheat' scenario as I have shown previously that it's worst for controlling herbicide-resistant black-grass.  
+  
+**Spearman Rank Correlation (or Spearman's Rho)**\
+\
+Examples of other papers that have used Spearman's rank to look at trade-offs:\
+\
+Wang, L., Yu, E., Li, S., Fu, X. & Wu, G. Analysis of Ecosystem Service Trade-Offs and Synergies in Ulansuhai Basin. Sustainability 13, 9839 (2021).\
+\
+"When r > 0 and p < 0.05, the two variables are in a synergistic relationship (i.e., they change in the same direction), while r < 0 and p < 0.05 indicates a trade-offs relationship (i.e., they change in the opposite direction). If they are not related (r = 0, p < 0.05), the relationship is neutral. The size of the value reflects the strength of the relationship between the variables."\
+\
+Use a two-tailed test.\
+Jezeer, R. E., Santos, M. J., Verweij, P. A., Boot, R. G. A. & Clough, Y. Benefits for multiple ecosystem services in Peruvian coffee agroforestry systems without reducing yield. Ecosyst. Serv. 40, 101033 (2019).\
+\
+"to identify possible synergies or trade-offs between ecosystem services, we correlated i) coffee yield and butterfly species richness; ii) butterfly species richness and carbon storage and; iii) coffee yield and carbon storage using the Spearman’s correlation coefficient. To do this correlation analysis, **in order to control for potentially confounding factors we used the model residuals of GLMs fitted for coffee yield, butterfly species richness and carbon storage, with altitude, coffee shrub age and region as explanatory variables**." (N.B. they collected data - this isn't the same for us so we don't need to use model residuals, can just use the data).\
+\
+**Info on Spearman's rank correlation:**\
+\
+Rough guide to strength of correlations (from here https://guides.library.lincoln.ac.uk/ld.php?content_id=34418949):\
+0-0.19 Very weak positive correlation\
+0.2-0.39 Weak positive correlation\
+0.4-0.59 Moderate positive correlation\
+0.6-0.79 Strong positive correlation\
+0.8-1 Very strong positive correlation\
+And same for negative values.\
+\
+The Spearman correlation is less sensitive than the Pearson correlation to strong outliers that are in the tails of both samples. ((Source))[https://en.wikipedia.org/wiki/Spearman%27s_rank_correlation_coefficient]\
+\ 
+Spearman's correlation determines the strength and direction of the monotonic relationship between your two variables rather than the strength and direction of the linear relationship between your two variables, which is what Pearson's correlation determines. A monotonic relationship is a relationship that does one of the following: (1) as the value of one variable increases, so does the value of the other variable; or (2) as the value of one variable increases, the other variable value decreases. Monotonicity is "less restrictive" than that of a linear relationship. ((Source))[https://statistics.laerd.com/statistical-guides/spearmans-rank-order-correlation-statistical-guide.php#:~:text=A%20monotonic%20relationship%20is%20a,the%20other%20variable%20value%20decreases.]\
+\
+...there are times when data exhibits some relationship but not linear correlation. In these cases, Pearson’s correlation may report inaccurate and misleading values. Spearman’s rank correlation coefficient, or Spearman’s correlation coefficient, as the name suggests, is a nonparametric approach to measuring correlation using rank values. Spearman’s correlation coefficient is often denoted rho $ρ$ and measures the monotonic relationship of the variables rather than the linear association in the Pearson setting. Thus, Spearman’s correlation coefficient is more reliable with non-linear data compared to Pearson’s $r$.  
+Requires package `ggplot2`. ((Source))[https://rpubs.com/aaronsc32/spearman-rank-correlation]\
+\
+Other info (here)[https://guides.library.lincoln.ac.uk/mash/statstest/spearman_rho_correlation]\
+\
+The calculation of Spearman’s correlation coefficient and subsequent significance testing of it requires the following data assumptions to hold ((Source))[https://www.statstutor.ac.uk/resources/uploaded/spearmans.pdf]:\
+* interval or ratio level or ordinal;\
+* monotonically related.\
+\
+The Spearman correlation coefficient, $r$~s~, can take values from +1 to -1. A $r$~s~ of +1 indicates a perfect association of ranks, a $r$~s~ of zero indicates no association between ranks and a $r$~s~ of -1 indicates a perfect negative association of ranks. The closer $r$~s~ is to zero, the weaker the association between the ranks.\
+\
+
+# 2. Load packages, functions, data
+```{r}
+# Load packages
+rm(list = ls(all = TRUE)) # clear envt
+library(tidyverse)
+library(viridis)
+library(ggtext)
+library(Hmisc)
+library(patchwork) # for panel plots
+library(grid) # for function testGrob
+
+# Function to count complete observations
+nobs <- function(x) length(x[!is.na(x)])
+
+# Function to annotate plots
+annotate_text2 <- function(label, x, y, facets=NULL, hjust=0, vjust=0, color='black', alpha=NA,
+                          family=thm$text$family, size=thm$text$size, fontface=1, lineheight=1.0,
+                          box_just=ifelse(c(x,y)<0.5,0,1), margin=unit(size/2, 'pt'), thm=theme_get()) {
+  x <- scales::squish_infinite(x)
+  y <- scales::squish_infinite(y)
+  data <- if (is.null(facets)) data.frame(x=NA) else data.frame(x=NA, facets)
+
+  tg <- grid::textGrob(
+    label, x=0, y=0, hjust=hjust, vjust=vjust,
+    gp=grid::gpar(col=alpha(color, alpha), fontsize=size, fontfamily=family, fontface=fontface, lineheight=lineheight)
+  )
+  ts <- grid::unit.c(grid::grobWidth(tg), grid::grobHeight(tg))
+  vp <- grid::viewport(x=x, y=y, width=ts[1], height=ts[2], just=box_just)
+  tg <- grid::editGrob(tg, x=ts[1]*hjust, y=ts[2]*vjust, vp=vp)
+  inner <- grid::grobTree(tg, vp=grid::viewport(width=unit(1, 'npc')-margin*2, height=unit(1, 'npc')-margin*2))
+
+  layer(
+    data = NULL,
+    stat = StatIdentity,
+    position = PositionIdentity,
+    geom = GeomCustomAnn,
+    inherit.aes = TRUE,
+    params = list(
+      grob=grid::grobTree(inner), 
+      xmin=-Inf, 
+      xmax=Inf, 
+      ymin=-Inf, 
+      ymax=Inf
+    )
+  )
+}
+
+# Load data
+c_gp_yld <- read.csv("../output/trade_offs_tidy.csv", header = T) %>% 
+  dplyr::mutate(
+    scenario = factor(scenario, levels = c("BAU", "MIT")),
+    region = factor(region, levels = c("north", "central", "east")),
+    soiltype = factor(soiltype, levels = c("heavy", "medium","light")),
+    initDR = factor(initDR, levels = c("LD-LR", "LD-HR", "HD-HR"))
+    )
+```
+
+# 3. Summarise data
+
+* For plots of the overall effect of initial density-resistance state, range needs to show variability across years in the rotation, soil types and regions.  
+* For plots of the effect of initial density-resistance state *within regions and soil types* (i.e., panel plots, where panels are region and soil), range needs to show variability across years in the rotation.  
+  
+## 3.1. Summarise trade-offs by initDR
+
+Calculate overall rotation means by initial density-resistance state.  
+Range needs to show variability across years in the rotation, soil types and regions.    
+Data `c_gp_yld` is already summarised across imputations.  
+  
+For plots in section 4.2. (plots by initDR, each outcome averaged over year, soil, region), <span style="color: red;">there are two ways of getting the range:</span>  
+    
+(a) Get the min/max values for opportunity cost (and other differences) from *level 2* in the data (see ppt diagram) - this will give the highest and lowest values seen seen across all regions, soil types and, importantly, **years**. So cropping order will affect the min/max values. So the order of calculations will be:  
+* (i) for each den-res category, find the rotation mean (i.e., average across years) for each region-soil-year combo;  
+* (ii) get min/max values (-> they will represent the range due to soil type, region and year);  
+* (iii) summarise further to find rotation mean averaged across regions, soil types and years.  
+After that, summarise across regions and soil types.  
+  
+(b) Get the min/max values for opportunity cost (and other differences) from *level 3* in the data (see ppt diagram), AFTER I've already found a rotation mean value (i.e., averaged across years). So the order of calculations would be:  
+* (i) for each den-res category, find the rotation mean for each region-soil combo;  
+* (ii) get min/max values of these rotation means (-> they will represent the range due to soil type and region);  
+* (iii) summarise further to find mean values across regions and soil types. This will give smaller min/max values as it effectively removes the effect of cropping order on the results. In other words, the order in which the BAU crop sequence is grown versus the MIT sequence, will have less effect on the results than it would if I used approach (a).  
+      
+```{r, attr.source='.numberLines'}
+## Approach (a) ----------------------------------------------------------------
+
+trdoff_initDR_a <- c_gp_yld %>% 
+  # Extract the MIT rows. I did MIT-BAU, so MIT rows are the only ones that 
+  # contain the calculated differences
+  dplyr::filter(scenario == "MIT") %>% 
+  # Reverse sign on opportunity costs -> needed for combined plots
+  dplyr::mutate(ocneg_wins = oc * -1) %>% 
+  # Calculate min and max values
+  # Grouping by 'initDR' means we'll show the range of values across  
+  # region, soil type and year (in other words, we'll get the lowest and  
+  # highest values seen across all regions, soil types and years)
+  dplyr::group_by(initDR) %>% 
+  dplyr::mutate(
+    oc_min = min(oc, na.rm = TRUE),
+    oc_max = max(oc, na.rm = TRUE),
+    ocneg_wins_min = min(ocneg_wins, na.rm = TRUE),
+    ocneg_wins_max = max(ocneg_wins, na.rm = TRUE),
+    ww_pc_min = min(ww_pc, na.rm = TRUE),
+    ww_pc_max = max(ww_pc, na.rm = TRUE),
+    calories_diff_min = min(calories_diff, na.rm = TRUE),
+    calories_diff_max = max(calories_diff, na.rm = TRUE),
+    land_use_diff_min = min(land_use_diff, na.rm = TRUE),
+    land_use_diff_max = max(land_use_diff, na.rm = TRUE),
+    c_emiss_diff_min = min(c_emiss_diff, na.rm = TRUE),
+    c_emiss_diff_max = max(c_emiss_diff, na.rm = TRUE),
+  ) %>%  
+  # Calculate mean values
+  dplyr::summarise(across(c(
+    oc, oc_min, oc_max, 
+    ocneg_wins, ocneg_wins_min, ocneg_wins_max,
+    ww_pc, ww_pc_min, ww_pc_max, 
+    calories_diff, calories_diff_min, calories_diff_max,
+    land_use_diff, land_use_diff_min, land_use_diff_max,
+    c_emiss_diff, c_emiss_diff_min, c_emiss_diff_max
+    ),.fns = list(
+    mean=~mean(.x, na.rm = TRUE),
+    n=~nobs(.x)
+  ))) %>% 
+  ungroup() %>% 
+  # Tidy up column names
+  dplyr::select(-contains(c('min_n', 'max_n'))) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("min_mean", "min", .x)) %>% # remove '_mean' in 'minimum' column names
+  dplyr::rename_at(vars(everything()), ~ sub("max_mean", "max", .x)) %>% # remove '_mean' in 'maximum' column names
+  dplyr::rename(n = oc_n) %>% # just retain one column to hold 'n'
+  dplyr::relocate(n, .after = initDR) %>% 
+  dplyr::select(-contains('_n')) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("ocneg", "oc_neg", .x))
+
+# Make 'long' data frame of this summarised data for plotting 'combined' plots
+trdoff_initDR_long_a <- trdoff_initDR_a %>%
+  dplyr::select(-n) %>% 
+  # remove underscores in colnames (retain underscores before 'mean', 'min' & 'max')
+  dplyr::rename_at(vars(everything()), ~ sub("c_emiss_diff", "Emissions", .x)) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("land_use_diff", "LandUseDiff", .x)) %>%
+  dplyr::rename_at(vars(everything()), ~ sub("calories_diff", "CaloriesDiff", .x)) %>%
+  dplyr::rename_at(vars(everything()), ~ sub("ww_pc", "WWpc", .x)) %>%
+  dplyr::rename_at(vars(everything()), ~ sub("oc_neg_wins", "ocNegWins", .x)) %>%
+  # wide to long
+  pivot_longer(cols = -initDR, 
+        names_to = c("variable", ".value"), names_sep = "_") 
+
+
+## Approach (b) ----------------------------------------------------------------
+
+trdoff_initDR_b <- c_gp_yld %>% 
+  # Extract the MIT rows. I did MIT-BAU, so MIT rows are the only ones that 
+  # contain the calculated differences
+  dplyr::filter(scenario == "MIT") %>% 
+  # Reverse sign on opportunity costs -> needed for combined plots
+  dplyr::mutate(ocneg_wins = oc * -1) %>% 
+  # Calculate rotation means
+  # Group by region, soil type and initDR to find rotation mean first, so that 
+  # the effect of the order of crops in the rotation is averaged away
+  dplyr::group_by(region, soiltype, initDR) %>% 
+  dplyr::summarise(across(c(
+    gp, oc, ocneg_wins, ww_pc, calories_diff, land_use_diff, c_emiss_diff
+    ),.fns = list(
+    mean=~mean(.x, na.rm = TRUE),
+    n=~nobs(.x)
+  ))) %>% 
+  ungroup() %>%
+  dplyr::rename(n = gp_n) %>% # create 1 column to hold 'n'
+  dplyr::relocate(n, .after = initDR) %>%
+  dplyr::select(-contains('_n')) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("_mean", "", .x)) %>% # remove '_mean' in column names
+  # Now take min and max values within each initial den res category - the range 
+  # will therefore represent the variation across regions and soil types
+  dplyr::group_by(initDR) %>% 
+  dplyr::mutate(
+    oc_min = min(oc, na.rm = TRUE),
+    oc_max = max(oc, na.rm = TRUE),
+    ocneg_wins_min = min(ocneg_wins, na.rm = TRUE),
+    ocneg_wins_max = max(ocneg_wins, na.rm = TRUE),
+    ww_pc_min = min(ww_pc, na.rm = TRUE),
+    ww_pc_max = max(ww_pc, na.rm = TRUE),
+    calories_diff_min = min(calories_diff, na.rm = TRUE),
+    calories_diff_max = max(calories_diff, na.rm = TRUE),
+    land_use_diff_min = min(land_use_diff, na.rm = TRUE),
+    land_use_diff_max = max(land_use_diff, na.rm = TRUE),
+    c_emiss_diff_min = min(c_emiss_diff, na.rm = TRUE),
+    c_emiss_diff_max = max(c_emiss_diff, na.rm = TRUE),
+  ) %>%  
+  # Calculate mean values
+  dplyr::summarise(across(c(
+    oc, oc_min, oc_max, 
+    ocneg_wins, ocneg_wins_min, ocneg_wins_max,
+    ww_pc, ww_pc_min, ww_pc_max, 
+    calories_diff, calories_diff_min, calories_diff_max,
+    land_use_diff, land_use_diff_min, land_use_diff_max,
+    c_emiss_diff, c_emiss_diff_min, c_emiss_diff_max
+    ),.fns = list(
+    mean=~mean(.x, na.rm = TRUE),
+    n=~nobs(.x)
+  ))) %>% 
+  ungroup() %>% 
+  # Tidy up column names
+  dplyr::select(-contains(c('min_n', 'max_n'))) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("min_mean", "min", .x)) %>% # remove '_mean' in 'minimum' column names
+  dplyr::rename_at(vars(everything()), ~ sub("max_mean", "max", .x)) %>% # remove '_mean' in 'maximum' column names
+  dplyr::rename(n = oc_n) %>% # just retain one column to hold 'n'
+  dplyr::relocate(n, .after = initDR) %>% 
+  dplyr::select(-contains('_n')) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("ocneg", "oc_neg", .x))
+
+# Make 'long' data frame of this summarised data for plotting 'combined' plots
+trdoff_initDR_long_b <- trdoff_initDR_b %>%
+  dplyr::select(-n) %>% 
+  # remove underscores in colnames (retain underscores before 'mean', 'min' & 'max')
+  dplyr::rename_at(vars(everything()), ~ sub("c_emiss_diff", "Emissions", .x)) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("land_use_diff", "LandUseDiff", .x)) %>%
+  dplyr::rename_at(vars(everything()), ~ sub("calories_diff", "CaloriesDiff", .x)) %>%
+  dplyr::rename_at(vars(everything()), ~ sub("ww_pc", "WWpc", .x)) %>%
+  dplyr::rename_at(vars(everything()), ~ sub("oc_neg_wins", "ocNegWins", .x)) %>%
+  # wide to long
+  pivot_longer(cols = -initDR, 
+        names_to = c("variable", ".value"), names_sep = "_") 
+```
+
+
+
+## 3.2. Summarise by initDR, soil type and region (rotation means)
+  
+Calculate rotation means by initial density-resistance state, soil type and region.  
+Range needs to show variability across years within each soil type and region.   
+Data `c_gp_yld` is already summarised across imputations.  
+  
+
+```{r, attr.source='.numberLines'}
+trdoff_rot <- c_gp_yld %>% 
+  dplyr::group_by(scenario, region, soiltype, initDR) %>% 
+  # calculate min and max values (this grouping will give range across years)----
+  dplyr::mutate(
+    gp_min = min(gp, na.rm = TRUE),
+    gp_max = max(gp, na.rm = TRUE),
+    oc_min = min(oc, na.rm = TRUE),
+    oc_max = max(oc, na.rm = TRUE),
+    ww_pc_min = min(ww_pc, na.rm = TRUE),
+    ww_pc_max = max(ww_pc, na.rm = TRUE),
+    calories_min = min(calories, na.rm = TRUE),
+    calories_max = max(calories, na.rm = TRUE),
+    calories_diff_min = min(calories_diff, na.rm = TRUE),
+    calories_diff_max = max(calories_diff, na.rm = TRUE),
+    land_use_min = min(land_use, na.rm = TRUE),
+    land_use_max = max(land_use, na.rm = TRUE),
+    land_use_diff_min = min(land_use_diff, na.rm = TRUE),
+    land_use_diff_max = max(land_use_diff, na.rm = TRUE),
+    c_total_min = min(c_total, na.rm = TRUE),
+    c_total_max = max(c_total, na.rm = TRUE),
+    c_emiss_diff_min = min(c_emiss_diff, na.rm = TRUE),
+    c_emiss_diff_max = max(c_emiss_diff, na.rm = TRUE)
+  ) %>% 
+  # calculate mean values---- 
+  dplyr::summarise(across(c(
+    gp, gp_min, gp_max,
+    oc, oc_min, oc_max, 
+    ww_pc, ww_pc_min, ww_pc_max, 
+    calories, calories_min, calories_max,
+    calories_diff, calories_diff_min, calories_diff_max,
+    land_use, land_use_min, land_use_max,
+    land_use_diff, land_use_diff_min, land_use_diff_max,
+    c_total, c_total_min, c_total_max,
+    c_emiss_diff, c_emiss_diff_min, c_emiss_diff_max
+    ),.fns = list(
+      mean=~mean(.x, na.rm = TRUE),
+      n=~nobs(.x)))) %>% 
+  ungroup() %>%
+  # tidy up----
+  dplyr::select(-contains(c('min_n', 'max_n'))) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("min_mean", "min", .x)) %>% # remove '_mean' in 'minimum' column names
+  dplyr::rename_at(vars(everything()), ~ sub("max_mean", "max", .x)) %>% # remove '_mean' in 'maximum' column names
+  dplyr::rename(n = oc_n) %>% # create 1 column to hold 'n'
+  dplyr::relocate(n, .after = initDR) %>% 
+  dplyr::select(-contains('_n'))
+```
+
+
+
+# 4. Visualise
+
+## 4.1. Direction of signs - what wins?
+Difference in *gross profit: +ve value wins*  
+Difference in gross profit (opp cost) = money lost by switching = difference in gross profit MIT-BAU.  
+So if  
+MIT = 10 <- better  
+BAU = 5  
+MIT - BAU = 5 = +ve value means MIT wins  
+  
+Difference in *carbon emissions: -ve value wins*  
+Difference in carbon emissions MIT-BAU  
+So if  
+MIT = 5 <- better  
+BAU = 8  
+MIT - BAU = -3 = -ve value means MIT wins  
+  
+Difference in *calories: +ve value wins*  
+Difference in kcal produced per m2 = MIT-BAU  
+So if  
+MIT = 6  <- better  
+BAU = 3  
+MIT - BAU = 3 = +ve value means MIT wins  
+  
+Difference in *land use: -ve value wins*    
+Difference in amount of land used to produce 1000 kcal = MIT-BAU
+So if  
+MIT = 3  <- better  
+BAU = 6  
+MIT - BAU = -3 = -ve value means MIT wins
+  
+Could switch the sign on opportunity costs (would then be BAU-MIT) so that for both C emissions and gross profit, values below 0 mean MIT wins.  
+
+  
+  
+##---
+## 4.2. Plots by initDR (averaged over year, soil, region)
+There are 180 data points per initDR underlying these plots, so could do violin plots....  
+  
+This uses the data summarised using approach (a). Minimum and maximum values thus show variation across years in the rotation, across soil types and across regions.  
+  
+### 4.2.1. Gross profit difference by init DR
+Plot the difference in gross profit (i.e., the opportunity cost) by initial density and resistance states. Positive values win.  
+  
+Plot with range across regions, soil types and years:  
+```{r, echo=FALSE}
+ggplot(data=trdoff_initDR_a, aes(x=initDR, y=oc_mean)) +
+  geom_point(aes(color=initDR, shape=initDR)) +
+  geom_pointrange(aes(ymin = oc_min, 
+                      ymax = oc_max,
+                      color = initDR,
+                      shape = initDR)
+                  ) +
+  scale_color_viridis_d() +
+  labs(
+    x = "Initial density and resistance", 
+    y = "Difference in gross profit\nBAU - MIT (£/ha)"
+    ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    axis.text.y = element_text(size=rel(2)),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=14),
+    legend.position = "none"
+    ) +
+  geom_hline(yintercept = 0, colour = "black") +
+  annotate("text", x = Inf, y = Inf, label = paste("+ve values win"), vjust = 1, hjust = 1)
+```
+  
+  
+    
+And again with no error bars...    
+```{r, echo=FALSE}
+ggplot(data=trdoff_initDR_a, aes(x=initDR, y=oc_mean)) +
+  geom_point(aes(color=initDR, shape=initDR)) +
+  scale_color_viridis_d() +
+  labs(
+    x = "Initial density and resistance", 
+    y = "Difference in gross profit\nBAU - MIT (£/ha)"
+    #y = "Opportunity cost,\nBAU - MIT (£/ha)") +
+    ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    axis.text.y = element_text(size=rel(2)),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=14),
+    legend.position = "none"
+    ) +
+  geom_hline(yintercept = 0, colour = "black") +
+  annotate("text", x = Inf, y = Inf, label = paste("+ve values win"), vjust = 1, hjust = 1)
+```
+
+
+
+Plot with range across regions and soil types (not across years):  
+```{r, echo=FALSE}
+ggplot(data=trdoff_initDR_b, aes(x=initDR, y=oc_mean)) +
+  geom_point(aes(color=initDR, shape=initDR)) +
+  geom_pointrange(aes(ymin = oc_min, 
+                      ymax = oc_max,
+                      color = initDR,
+                      shape = initDR)
+                  ) +
+  scale_color_viridis_d() +
+  labs(
+    x = "Initial density and resistance", 
+    y = "Difference in gross profit\nBAU - MIT (£/ha)"
+    ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    axis.text.y = element_text(size=rel(2)),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=14),
+    legend.position = "none"
+    ) +
+  geom_hline(yintercept = 0, colour = "black") +
+  annotate("text", x = Inf, y = Inf, label = paste("+ve values win"), vjust = 1, hjust = 1)
+```
+  
+  
+  
+### 4.2.2. Carbon emissions difference by init DR
+Plot the difference in carbon emissions by initial density and resistance states. Negative values win.  
+  
+Plot with range across regions, soil types and years:  
+```{r, echo=FALSE}
+ggplot(data=trdoff_initDR_a, aes(x=initDR, y=c_emiss_diff_mean)) +
+  geom_point(aes(color=initDR, shape=initDR)) +
+  geom_pointrange(aes(ymin = c_emiss_diff_min, 
+                      ymax = c_emiss_diff_max,
+                      color = initDR,
+                      shape = initDR)
+                  ) +
+  scale_color_viridis_d() +
+  labs(
+    x = "Initial density and resistance", 
+    #y = expression("Difference in carbon emissions, MIT - BAU (kgCO"["2"]~"eq/ha)")) +
+    y =  expression(atop("Difference in carbon emissions,",paste("MIT - BAU (kgCO"["2"]~"eq/ha)"))) 
+    ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    axis.text.y = element_text(size=rel(2)),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=14),
+    legend.position = "none"
+    ) +
+  geom_hline(yintercept = 0, colour = "black") +
+  annotate("text", x = Inf, y = Inf, label = paste("-ve values win"), vjust = 1, hjust = 1) #Using (Inf, Inf) anchors the text in the top right; adjust +/- Inf as desired to change corner. Tweak vjust & hjust as desired to adjust the text's offset
+```
+  
+The more diverse rotations are better for carbon emissions. Why? Look at management details - check emissions from fertiliser and field ops.  
+  
+Without error bars you can see the values better:  
+```{r, echo=FALSE}
+ggplot(data=trdoff_initDR_a, aes(x=initDR, y=c_emiss_diff_mean)) +
+  geom_point(aes(color=initDR, shape=initDR)) +
+  scale_color_viridis_d() +
+  labs(
+    x = "Initial density and resistance", 
+    y =  expression(atop("Difference in carbon emissions,",paste("MIT - BAU (kgCO"["2"]~"eq/ha)"))) 
+    ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    axis.text.y = element_text(size=rel(2)),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=14),
+    legend.position = "none"
+    ) +
+  geom_hline(yintercept = 0, colour = "black") +
+  annotate("text", x = Inf, y = Inf, label = paste("-ve values win"), vjust = 1, hjust = 1) 
+```
+  
+  
+
+Plot with range across regions and soil types (not across years):  
+```{r, echo=FALSE}
+ggplot(data=trdoff_initDR_b, aes(x=initDR, y=c_emiss_diff_mean)) +
+  geom_point(aes(color=initDR, shape=initDR)) +
+  geom_pointrange(aes(ymin = c_emiss_diff_min, 
+                      ymax = c_emiss_diff_max,
+                      color = initDR,
+                      shape = initDR)
+                  ) +
+  scale_color_viridis_d() +
+  labs(
+    x = "Initial density and resistance", 
+    #y = expression("Difference in carbon emissions, MIT - BAU (kgCO"["2"]~"eq/ha)")) +
+    y =  expression(atop("Difference in carbon emissions,",paste("MIT - BAU (kgCO"["2"]~"eq/ha)"))) 
+    ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    axis.text.y = element_text(size=rel(2)),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=14),
+    legend.position = "none"
+    ) +
+  geom_hline(yintercept = 0, colour = "black") +
+  annotate("text", x = Inf, y = Inf, label = paste("-ve values win"), vjust = 1, hjust = 1) #Using (Inf, Inf) anchors the text in the top right; adjust +/- Inf as desired to change corner. Tweak vjust & hjust as desired to adjust the text's offset
+```
+
+
+
+
+
+### 4.2.3. Calories difference by init DR
+Plot the difference in calories produced per m2, by initial density and resistance states. Positive values win.  
+  
+Plot with range across regions, soil types and years:  
+```{r, echo=FALSE}
+ggplot(data=trdoff_initDR_a, aes(x=initDR, y=calories_diff_mean)) +
+  geom_point(aes(color=initDR, shape=initDR)) +
+  geom_pointrange(aes(ymin = calories_diff_min, 
+                      ymax = calories_diff_max,
+                      color = initDR,
+                      shape = initDR)
+                  ) +
+  scale_color_viridis_d() +
+  labs(
+    x = "Initial density and resistance", 
+    y = "Difference in calories produced\nBAU - MIT (kcal/m2)" 
+    ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    axis.text.y = element_text(size=rel(2)),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=14),
+    legend.position = "none"
+    ) +
+  geom_hline(yintercept = 0, colour = "black") +
+  annotate("text", x = Inf, y = Inf, label = paste("+ve values win"), vjust = 1, hjust = 1)
+```
+  
+  
+The more diverse rotations are worse for calories.  
+  
+Without error bars you can see the values better:  
+```{r, echo=FALSE}
+ggplot(data=trdoff_initDR_a, aes(x=initDR, y=calories_diff_mean)) +
+  geom_point(aes(color=initDR, shape=initDR)) +
+  scale_color_viridis_d() +
+  labs(
+    x = "Initial density and resistance", 
+    y = "Difference in calories produced,\nBAU - MIT (kcal/m2)" 
+    ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    axis.text.y = element_text(size=rel(2)),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=14),
+    legend.position = "none"
+    ) +
+  geom_hline(yintercept = 0, colour = "black") +
+  annotate("text", x = Inf, y = Inf, label = paste("+ve values win"), vjust = 1, hjust = 1)
+```
+
+
+
+Plot with range across regions and soil types (not across years):  
+```{r, echo=FALSE}
+ggplot(data=trdoff_initDR_b, aes(x=initDR, y=calories_diff_mean)) +
+  geom_point(aes(color=initDR, shape=initDR)) +
+  geom_pointrange(aes(ymin = calories_diff_min, 
+                      ymax = calories_diff_max,
+                      color = initDR,
+                      shape = initDR)
+                  ) +
+  scale_color_viridis_d() +
+  labs(
+    x = "Initial density and resistance", 
+    y = "Difference in calories produced\nBAU - MIT (kcal/m2)" 
+    ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    axis.text.y = element_text(size=rel(2)),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=14),
+    legend.position = "none"
+    ) +
+  geom_hline(yintercept = 0, colour = "black") +
+  annotate("text", x = Inf, y = Inf, label = paste("+ve values win"), vjust = 1, hjust = 1)
+```
+  
+  
+  
+### 4.2.4. Land use difference by init DR
+  
+Plot the difference in land use (in m2 to produce 1000 kcal) by initial density and resistance. Negative values win.    
+  
+Plot with range across regions, soil types and years:  
+```{r, echo=FALSE}
+ggplot(data=trdoff_initDR_a, aes(x=initDR, y=land_use_diff_mean)) +
+  geom_point(aes(color=initDR, shape=initDR)) +
+  geom_pointrange(aes(ymin = land_use_diff_min, 
+                      ymax = land_use_diff_max,
+                      color = initDR,
+                      shape = initDR)
+                  ) +
+  scale_color_viridis_d() +
+  labs(
+    x = "Initial density and resistance", 
+    y = "Difference in land use, BAU - MIT\n(area, m2, rqd to produce 1000 kcal)"
+    ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    axis.text.y = element_text(size=rel(2)),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=14),
+    legend.position = "none"
+    ) +
+  geom_hline(yintercept = 0, colour = "black") +
+  annotate("text", x = Inf, y = Inf, label = paste("-ve values win"), vjust = 1, hjust = 1)
+```
+  
+  
+And again with no error bars...    
+```{r, echo=FALSE}
+ggplot(data=trdoff_initDR_a, aes(x=initDR, y=land_use_diff_mean)) +
+  geom_point(aes(color=initDR, shape=initDR)) +
+  scale_color_viridis_d() +
+  labs(
+    x = "Initial density and resistance", 
+    y = "Difference in land use, BAU - MIT\n(area, m2, rqd to produce 1000 kcal)"
+    ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    axis.text.y = element_text(size=rel(2)),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=14),
+    legend.position = "none"
+    ) +
+  geom_hline(yintercept = 0, colour = "black") +
+  annotate("text", x = Inf, y = Inf, label = paste("-ve values win"), vjust = 1, hjust = 1)
+```
+  
+  
+    
+Plot with range across regions and soil types (not across years):   
+```{r, echo=FALSE}
+ggplot(data=trdoff_initDR_b, aes(x=initDR, y=land_use_diff_mean)) +
+  geom_point(aes(color=initDR, shape=initDR)) +
+  geom_pointrange(aes(ymin = land_use_diff_min, 
+                      ymax = land_use_diff_max,
+                      color = initDR,
+                      shape = initDR)
+                  ) +
+  scale_color_viridis_d() +
+  labs(
+    x = "Initial density and resistance", 
+    y = "Difference in land use, BAU - MIT\n(area, m2, rqd to produce 1000 kcal)"
+    ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    axis.text.y = element_text(size=rel(2)),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=14),
+    legend.position = "none"
+    ) +
+  geom_hline(yintercept = 0, colour = "black") +
+  annotate("text", x = Inf, y = Inf, label = paste("-ve values win"), vjust = 1, hjust = 1)
+```
+  
+Spike in HD-HR due to fallow year.    
+  
+  
+### 4.2.5. Risk - TO DO
+**Need to add in risk**. Elin, please may I have risk data summarised by taxon. Each row should represent initDR-soiltype-region-year.
+
+### 4.2.6. Summary of plots by initDR
+
+These plots continue the theme from the resistance management paper. It makes sense to switch *before* resistance arises. Once it's arisen, there are trade-offs in terms of gross profit and all yield variables (wheat yield, calories, land use). The exception to this is carbon emissions, where all MIT strategies have lower emissions than BAU.   
+  
+
+
+
+##---
+## 4.3. Plots by initDR, soil type and region (rotation mean)
+Minimum and maximum values show variation across years in the rotation.  
+  
+### 4.3.1. Specify panel labels
+  
+```{r, specify-panel-labels, echo=FALSE}
+region.labs <- c("Northern England", "Central England", "Eastern England") # new
+names(region.labs) <- c("north", "central", "east") # original
+
+soiltype.labs <- c("Heavy soil", "Medium soil", "Light soil") # new
+names(soiltype.labs) <- c("heavy", "medium", "light") # original
+```
+  
+  
+### 4.3.2. Gross profit (rotation mean) by soil type and region
+
+```{r, echo=FALSE}
+gp_by_soilreg <- ggplot(trdoff_rot, aes(initDR, gp_mean, colour = scenario, shape = scenario)) + 
+  facet_grid(region ~ soiltype,
+             labeller = labeller(region = region.labs, 
+                                 soiltype = soiltype.labs)) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Initial density and resistance of Black-grass population", 
+       y = "Mean annual gross profit (£/ha)" 
+       ) +
+  # specify colours for 'scenario':
+  scale_color_manual(name = "Scenario",
+                     values = c("#00306F", # BAU, madison blue
+                                "#00C2F9" # MIT, capri blue
+                                )
+                     ) + 
+  scale_shape_manual(name = "Scenario",
+                     values=c(15, # BAU, 15 = square
+                              16 # MIT, 16 = circle
+                              ) 
+                     )  +
+  geom_pointrange(aes(ymin = gp_min, ymax = gp_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) #+ 
+  #theme(strip.placement = 'outside',
+  #      strip.text.x = element_text(size = 22),
+  #      strip.text.y = element_text(size = 22),
+  #      axis.title=element_text(size=24),
+  #      axis.text.x=element_text(size=rel(2.2)),
+  #      axis.text.y=element_text(size=rel(2.2))
+  #      )
+
+gp_by_soilreg
+```
+  
+  
+
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/analysis-exploration_rotn mean by soil and region_grossprofit.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(gp_by_soilreg)
+# dev.off()
+```
+
+
+
+### 4.3.3. Carbon emissions (rotation mean) by soil type and region
+
+```{r, echo=FALSE}
+c_by_soilreg <- ggplot(trdoff_rot, aes(initDR, c_total_mean, colour = scenario, shape = scenario)) + 
+  facet_grid(region ~ soiltype,
+             labeller = labeller(region = region.labs, 
+                                 soiltype = soiltype.labs)) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Initial density and resistance of Black-grass population", 
+       y =  expression(atop("Mean annual carbon emissions",paste("(kgCO"["2"]~"eq/ha)")))
+       ) +
+  # specify colours for 'scenario':
+  scale_color_manual(name = "Scenario",
+                     values = c("#00306F", # BAU, madison blue
+                                "#00C2F9" # MIT, capri blue
+                                )
+                     ) + 
+  scale_shape_manual(name = "Scenario",
+                     values=c(15, # BAU, 15 = square
+                              16 # MIT, 16 = circle
+                              ) 
+                     )  +
+  geom_pointrange(aes(ymin = c_total_min, ymax = c_total_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) #+ 
+  #theme(strip.placement = 'outside',
+  #      strip.text.x = element_text(size = 22),
+  #      strip.text.y = element_text(size = 22),
+  #      axis.title=element_text(size=24),
+  #      axis.text.x=element_text(size=rel(2.2)),
+  #      axis.text.y=element_text(size=rel(2.2))
+  #      )
+
+c_by_soilreg
+```
+
+
+
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/analysis-exploration_rotn mean by soil and region_C emissions.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(c_by_soilreg)
+# dev.off()
+```
+
+  
+  
+### 4.3.4. Calories (rotation mean) by soil type and region
+
+```{r, echo=FALSE}
+calories_by_soilreg <- ggplot(trdoff_rot, aes(initDR, calories_mean, colour = scenario, shape = scenario)) + 
+  facet_grid(region ~ soiltype,
+             labeller = labeller(region = region.labs, 
+                                 soiltype = soiltype.labs)) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Initial density and resistance of Black-grass population", 
+       y = "Mean annual calories produced (kcal/m2)" 
+       ) +
+  # specify colours for 'scenario':
+  scale_color_manual(name = "Scenario",
+                     values = c("#00306F", # BAU, madison blue
+                                "#00C2F9" # MIT, capri blue
+                                )
+                     ) + 
+  scale_shape_manual(name = "Scenario",
+                     values=c(15, # BAU, 15 = square
+                              16 # MIT, 16 = circle
+                              ) 
+                     )  +
+  geom_pointrange(aes(ymin = calories_min, ymax = calories_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) #+ 
+  #theme(strip.placement = 'outside',
+  #      strip.text.x = element_text(size = 22),
+  #      strip.text.y = element_text(size = 22),
+  #      axis.title=element_text(size=24),
+  #      axis.text.x=element_text(size=rel(2.2)),
+  #      axis.text.y=element_text(size=rel(2.2))
+  #      )
+
+calories_by_soilreg
+```
+  
+  
+
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/analysis-exploration_rotn mean by soil and region_calories.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(calories_by_soilreg)
+# dev.off()
+```
+
+  
+  
+HD-HR in the east grows one sugar beet crop hence the high maximum value.  
+  
+
+### 4.3.5. Land use (rotation mean) by soil type and region
+
+```{r, echo=FALSE}
+landuse_by_soilreg <- ggplot(trdoff_rot, aes(initDR, land_use_mean, colour = scenario, shape = scenario)) + 
+  facet_grid(region ~ soiltype,
+             labeller = labeller(region = region.labs, 
+                                 soiltype = soiltype.labs)) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Initial density and resistance of Black-grass population", 
+       y = "Mean annual land use\n(area, m2, rqd to produce 1000 kcal)"
+       ) +
+  # specify colours for 'scenario':
+  scale_color_manual(name = "Scenario",
+                     values = c("#00306F", # BAU, madison blue
+                                "#00C2F9" # MIT, capri blue
+                                )
+                     ) + 
+  scale_shape_manual(name = "Scenario",
+                     values=c(15, # BAU, 15 = square
+                              16 # MIT, 16 = circle
+                              ) 
+                     )  +
+  geom_pointrange(aes(ymin = land_use_min, ymax = land_use_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) #+ 
+  #theme(strip.placement = 'outside',
+  #      strip.text.x = element_text(size = 22),
+  #      strip.text.y = element_text(size = 22),
+  #      axis.title=element_text(size=24),
+  #      axis.text.x=element_text(size=rel(2.2)),
+  #      axis.text.y=element_text(size=rel(2.2))
+  #      )
+
+landuse_by_soilreg
+```
+  
+  
+
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/analysis-exploration_rotn mean by soil and region_landuse.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(landuse_by_soilreg)
+# dev.off()
+```
+
+
+
+### 4.3.6. Risk (rotation mean) by soil type and region - TO DO
+
+Needs different panel labels as there are only two soil types.  
+```{r, echo=FALSE, eval = FALSE}
+# get rid of eval=FALSE once this is the correct code
+
+```
+
+
+```{r, echo=FALSE, eval = FALSE}
+# get rid of eval=FALSE once this is the correct code
+risk_by_soilreg <- ggplot(trdoff_rot, aes(initDR, TO_FILL_IN, colour = scenario, shape = scenario)) + 
+  facet_grid(region ~ soiltype,
+             labeller = labeller(region = region.labs, 
+                                 soiltype = soiltype.labs)) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Initial density and resistance of Black-grass population", 
+       y = "Mean annual land use\n(area, m2, rqd to produce 1000 kcal)"
+       ) +
+  # specify colours for 'scenario':
+  scale_color_manual(name = "Scenario",
+                     values = c("#00306F", # BAU, madison blue
+                                "#00C2F9" # MIT, capri blue
+                                )
+                     ) + 
+  scale_shape_manual(name = "Scenario",
+                     values=c(15, # BAU, 15 = square
+                              16 # MIT, 16 = circle
+                              ) 
+                     )  +
+  geom_pointrange(aes(ymin = TO_FILL_IN_min, ymax = TO_FILL_IN_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2))
+        )
+
+risk_by_soilreg
+```
+  
+  
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/analysis-exploration_rotn mean by soil and region_risk.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(landuse_by_soilreg)
+# dev.off()
+```
+
+
+
+##---
+## 4.4. Combined plots
+### 4.4.1  Carbon and gross profit by initDR - on same graph
+  
+Plot with range across regions, soil types and years:  
+```{r, echo=FALSE}
+#Viridis pallette hex codes here: https://www.thinkingondata.com/something-about-viridis-library/
+c_oc_plot <- ggplot(data=trdoff_initDR_long_a %>% 
+                      dplyr::filter(variable %in% c("Emissions", "ocNegWins")),
+       aes(
+         x=initDR, 
+         y=mean, 
+         group=variable, 
+         colour=variable, 
+         shape=variable)
+       ) +
+  #geom_pointrange(aes(ymin=cil, ymax=ciu, color=variable)) +
+  geom_pointrange(aes(ymin=min, ymax=max, color=variable), position=position_dodge(width=0.2)) +
+  scale_color_manual(labels = c('Carbon\nemissions', 'Gross\nprofit'), 
+                     values = c("#FDE725FF", "#440154FF"),
+                     guide = guide_legend(reverse = TRUE)
+                     ) +
+  scale_shape_manual(labels = c('Carbon\nemissions', 'Gross\nprofit'), 
+                     values = c(16, 17),
+                     guide = guide_legend(reverse = TRUE)
+                     ) +
+  scale_size_manual(values=c(7,7)) +
+  labs(
+    x = "Initial density and resistance", 
+    #y = "Difference in carbon emissions (kgC02eq/ha)" #, MIT - BAU \n
+    #y = expression("Difference in carbon emissions (kgCO"["2"]~"eq/ha)")
+    y = expression(atop("Difference in carbon emissions,",paste("MIT - BAU (kgCO"["2"]~"eq/ha)"))) 
+    #y =  expression(atop("Difference in carbon emissions,",paste("MIT - BAU (kgCO"["2"]~"eq/ha)"))) 
+  ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(1.8)),
+    axis.text.y = element_text(size=rel(1.8)),
+    legend.title = element_text(size=16),
+    legend.text=element_text(size=16)
+    ) +
+  geom_hline(yintercept = 0, colour = "black", lty = 2) +
+   scale_y_continuous(
+    limits=c(-3500,1200), # was previously c(-1000,200), when I was using CIs
+    # Add a second axis and specify its features
+    sec.axis = sec_axis(~.x, name="Difference in gross profit\nBAU - MIT (£/ha)")
+  ) +
+  geom_segment(aes(x=0.5, y=100, xend=0.5, yend=500), 
+               arrow = arrow(length=unit(.3, 'cm')),
+               lineend = "round", 
+               linejoin = "round",
+               linewidth = 0.8,
+               col='black') +
+  geom_segment(aes(x=0.5, y=-100, xend=0.5, yend=-500), 
+               arrow = arrow(length=unit(.3, 'cm')),
+               lineend = "round", 
+               linejoin = "round",
+               linewidth = 0.8,
+               col='black') +
+  annotate("text", x = 0.5, y = 680, label = "BAU 
+wins",
+           vjust = 0.3, hjust = 0.14, size = 4) +
+  annotate("text", x = 0.5, y = -680, label = "MIT 
+wins",
+           vjust = 0.6, hjust = 0.14, size = 4) +
+  labs(colour = "Difference in...", shape = "Difference in...") #+
+#theme(aspect.ratio=9/10)
+
+c_oc_plot
+```
+
+Min and max values show variation across years in the rotation as well as across soil types and regions.  
+
+  
+  
+Plot with range across regions and soil types (not across years):  
+```{r, echo=FALSE}
+ggplot(data=trdoff_initDR_long_b %>% 
+                      dplyr::filter(variable %in% c("Emissions", "ocNegWins")),
+       aes(
+         x=initDR, 
+         y=mean, 
+         group=variable, 
+         colour=variable, 
+         shape=variable)
+       ) +
+  geom_pointrange(aes(ymin=min, ymax=max, color=variable), position=position_dodge(width=0.2)) +
+  scale_color_manual(labels = c('Carbon\nemissions', 'Gross\nprofit'), 
+                     values = c("#FDE725FF", "#440154FF"),
+                     guide = guide_legend(reverse = TRUE)
+                     ) +
+  scale_shape_manual(labels = c('Carbon\nemissions', 'Gross\nprofit'), 
+                     values = c(16, 17),
+                     guide = guide_legend(reverse = TRUE)
+                     ) +
+  scale_size_manual(values=c(7,7)) +
+  labs(
+    x = "Initial density and resistance", 
+    y = expression(atop("Difference in carbon emissions,",paste("MIT - BAU (kgCO"["2"]~"eq/ha)"))) 
+  ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(1.8)),
+    axis.text.y = element_text(size=rel(1.8)),
+    legend.title = element_text(size=16),
+    legend.text=element_text(size=16)
+    ) +
+  geom_hline(yintercept = 0, colour = "black", lty = 2) +
+   scale_y_continuous(
+    #limits=c(-1200,300),
+    # Add a second axis and specify its features
+    sec.axis = sec_axis(~.x, name="Difference in gross profit\nBAU - MIT (£/ha)")
+  ) +
+  geom_segment(aes(x=0.5, y=50, xend=0.5, yend=150), 
+               arrow = arrow(length=unit(.3, 'cm')),
+               lineend = "round", 
+               linejoin = "round",
+               linewidth = 0.8,
+               col='black') +
+  geom_segment(aes(x=0.5, y=-50, xend=0.5, yend=-150), 
+               arrow = arrow(length=unit(.3, 'cm')),
+               lineend = "round", 
+               linejoin = "round",
+               linewidth = 0.8,
+               col='black') +
+  annotate("text", x = 0.5, y = 220, label = "BAU 
+wins",
+           vjust = 0.3, hjust = 0.14, size = 4) +
+  annotate("text", x = 0.5, y = -220, label = "MIT 
+wins",
+           vjust = 0.6, hjust = 0.14, size = 4) +
+  labs(colour = "Difference in...", shape = "Difference in...") #+
+#theme(aspect.ratio=9/10)
+```
+
+
+  
+Results illustrate the need to consider multiple outcomes when designing rotations: can't just consider one aspect.  
+  
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/analysis-exploration_combined plots_C emiss and opp costs.png",
+#     height = 10, width = 17, units = "in", res = 300)
+# print(c_gp_plot)
+# dev.off()
+```
+
+
+
+
+
+### 4.4.2. Calories and carbon by initDR - on same graph
+  
+Plot with range across regions, soil types and years:  
+```{r, echo=FALSE}
+#Viridis pallette hex codes here: https://www.thinkingondata.com/something-about-viridis-library/  
+c_cal_plot <- ggplot(data=trdoff_initDR_long_a %>% 
+                      dplyr::filter(variable %in% c("Emissions", "CaloriesDiff")), 
+       aes(
+         x=initDR, 
+         y=mean, 
+         group=variable, 
+         colour=variable, 
+         shape=variable)
+       ) +
+  geom_pointrange(aes(ymin=min, ymax=max, color=variable), position=position_dodge(width=0.2)) +
+  scale_color_manual(labels = c('Carbon\nemissions', 'Calories'), 
+                     values = c("#FDE725FF", "#440154FF"),
+                     guide = guide_legend(reverse = TRUE)
+                     ) +
+  scale_shape_manual(labels = c('Carbon\nemissions', 'Calories'), 
+                     values = c(16, 17),
+                     guide = guide_legend(reverse = TRUE)
+                     ) +
+  scale_size_manual(values=c(7,7)) +
+  labs(
+    x = "Initial density and resistance", 
+    y = expression(atop("Difference in carbon emissions",paste("MIT - BAU (kgCO"["2"]~"eq/ha)"))) 
+  ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(1.8)),
+    axis.text.y = element_text(size=rel(1.8)),
+    legend.title = element_text(size=16),
+    legend.text=element_text(size=16)
+    ) +
+  geom_hline(yintercept = 0, colour = "black", lty = 2) +
+   scale_y_continuous(
+    limits=c(-3500,3000), # was previously c(-1000,200), when I was using CIs
+    # Add a second axis and specify its features
+    sec.axis = sec_axis(~.x, name="Difference in calories produced\n(kcal/m2)")
+  ) +
+  labs(colour = "Difference in...", shape = "Difference in...")
+
+c_cal_plot
+```
+  
+Min and max values show variation across years in the rotation as well as across soil types and regions.  
+  
+  
+Plot with range across regions and soil types (not across years):
+```{r, echo=FALSE}
+ggplot(data=trdoff_initDR_long_b %>% 
+                      dplyr::filter(variable %in% c("Emissions", "CaloriesDiff")), 
+       aes(
+         x=initDR, 
+         y=mean, 
+         group=variable, 
+         colour=variable, 
+         shape=variable)
+       ) +
+  geom_pointrange(aes(ymin=min, ymax=max, color=variable), position=position_dodge(width=0.2)) +
+  scale_color_manual(labels = c('Carbon\nemissions', 'Calories'), 
+                     values = c("#FDE725FF", "#440154FF"),
+                     guide = guide_legend(reverse = TRUE)
+                     ) +
+  scale_shape_manual(labels = c('Carbon\nemissions', 'Calories'), 
+                     values = c(16, 17),
+                     guide = guide_legend(reverse = TRUE)
+                     ) +
+  scale_size_manual(values=c(7,7)) +
+  labs(
+    x = "Initial density and resistance", 
+    y = expression(atop("Difference in carbon emissions",paste("MIT - BAU (kgCO"["2"]~"eq/ha)"))) 
+  ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(1.8)),
+    axis.text.y = element_text(size=rel(1.8)),
+    legend.title = element_text(size=16),
+    legend.text=element_text(size=16)
+    ) +
+  geom_hline(yintercept = 0, colour = "black", lty = 2) +
+   scale_y_continuous(
+    #limits=c(-3500,3000), # was previously c(-1000,200), when I was using CIs
+    # Add a second axis and specify its features
+    sec.axis = sec_axis(~.x, name="Difference in calories produced\n(kcal/m2)")
+  ) +
+  labs(colour = "Difference in...", shape = "Difference in...")
+```
+  
+Min and max values show variation across soil types and regions.
+  
+  
+**N.B.** This plot doesn't really work as carbon emissions win if they're below the line, but calories win if they're above the line. Correlation plot (see below) probably better - <span style="color: red;">unless someone has a better idea?</span>  
+  
+  
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/analysis-exploration_combined plots_calories and C emiss.png",
+#     height = 10, width = 17, units = "in", res = 300)
+# print(c_kcal_plot)
+# dev.off()
+```
+
+
+
+  
+# 5. Correlations
+
+## 5.1. Trade-offs within scenarios
+
+Use #CC6677 for trade-offs relationship  
+Use #44AA99 for synergistic relationship
+
+### 5.1.1. MIT
+I haven't differentiated between LD-LR, LD-HR and HD-HR scenarios here, but it would be possible.  
+  
+#### MIT Gross profit & carbon
+```{r, echo=FALSE}
+bau_data <- c_gp_yld %>% dplyr::filter(scenario == "BAU")
+
+corrplot_mit_gp_c <- ggplot(c_gp_yld %>% dplyr::filter(scenario == "MIT"), aes(x = gp, y = c_total, shape = initDR)) + #, colour = initDR
+  geom_point(color= '#CC6677', size = 1) + #'#2980B9'
+  labs(
+    x = "Gross profit (£/ha)",
+    y = expression("Carbon emissions (kgCO"["2"]~"eq/ha)")
+    ) +
+  theme_classic() +
+  annotate_text2('Strong positive correlation\n(ρ(160) = 0.70, p < 0.01)\n-> indicates trade-off relationship', x=0.95, y=0.05, hjust=1, size=14, color='#CC6677') + #, fontface=2
+  theme(
+   axis.title = element_text(size=18),
+   axis.text.x = element_text(size=rel(1.8)),
+   axis.text.y = element_text(size=rel(1.8))
+   ) + 
+  geom_smooth(method="lm", colour = "black", aes(lty = initDR)) +
+   geom_smooth(data = bau_data, method="lm", color = "red")
+
+corrplot_mit_gp_c
+```
+ 
+```{r}
+# ggplot(c_gp_yld %>% dplyr::filter(scenario == "MIT"), aes(x = gp, y = c_total)) + #, colour = initDR
+#   geom_point(color= '#CC6677', size = 1) + #'#2980B9'
+#   labs(
+#     x = "Gross profit (£/ha)",
+#     y = expression("Carbon emissions (kgCO"["2"]~"eq/ha)")
+#     ) +
+#   theme_classic() +
+#   annotate_text2('Strong positive correlation\n(ρ(160) = 0.70, p < 0.01)\n-> indicates trade-off relationship', x=0.95, y=0.05, hjust=1, size=14, color='#CC6677') + #, fontface=2
+#   theme(
+#    axis.title = element_text(size=18),
+#    axis.text.x = element_text(size=rel(1.8)),
+#    axis.text.y = element_text(size=rel(1.8))
+#    ) + 
+#   geom_smooth(se = FALSE, method = "gam", colour = "black") +
+#    geom_smooth(data = bau_data, color = "red")
+```
+ 
+  
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/analysis-exploration_corrplot_mit_gp_c.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(corrplot_mit_gp_c)
+# dev.off()
+```
+  
+  
+  
+Positive correlation between gross profit and carbon emissions in MIT scenarios: higher gross profits (good) are correlated with higher carbon emissions (bad). Possible non-linear relationship reaching an asymptote at higher values of x? (so definitely use Spearman's). There are obviously trade-offs here: higher gross profits come at a cost (higher carbon emissions).  
+
+
+```{r}
+corr_bau_gp_c <- cor.test(x = c_gp_yld$c_total[c_gp_yld$scenario == "BAU"], 
+                          y = c_gp_yld$gp[c_gp_yld$scenario == "BAU"], 
+                          method = 'spearman', 
+                          exact = FALSE # a logical indicating whether an exact p-value should be computed - where there are ties in the data, set it to F
+                          )
+corr_bau_gp_c
+```
+
+For MIT, there is a strong positive correlation (i.e. a trade-off) between gross profit and carbon emissions (ρ(160) = 0.70, $p$ < 0.01).  
+  
+(When r > 0 and p < 0.05, the two variables are in a trade-offs relationship (i.e., they change in the same direction *which here indicates a trade-off between C and £*), while r < 0 and p < 0.05 indicates a synergistic relationship (i.e., they change in the opposite direction *which here indicates synergy between C and £*). If they are not related (r = 0, p < 0.05), the relationship is neutral. The size of the value reflects the strength of the relationship between the variables.)
+  
+N = 162  
+  
+For info on cor.test see (here)[https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/cor.test] - gives details of how it's computed and refs.  
+  
+  
+Check I get same result with `spearman.test` from package (Hmisc)[https://www.rdocumentation.org/packages/Hmisc/versions/5.1-2/topics/biVar], which computes the square of Spearman's rho rank correlation:
+```{r}
+Hmisc::spearman.test(x=c_gp_yld$gp[c_gp_yld$scenario=="MIT"], 
+                     y=c_gp_yld$c_total[c_gp_yld$scenario=="MIT"],
+                     p=1)#for numeric variables, p specifies the order of the Spearman rho^2 to use. The default is p=1 to compute the ordinary rho^2. Use p=2 to compute the quadratic rank generalization to allow non-monotonicity. p is ignored for categorical predictors.
+```
+
+
+This is the square of the value of rho computed using base R:
+```{r}
+0.6952339^2
+```
+
+
+
+#### MIT Gross profit & yield (calories)
+
+```{r, echo=FALSE}
+corr_mit_gp_cal <- cor.test(x = c_gp_yld$gp[c_gp_yld$scenario == "MIT"], 
+                            y = c_gp_yld$calories[c_gp_yld$scenario == "MIT"], 
+                            method = 'spearman', 
+                            exact = FALSE # a logical indicating whether an exact p-value should be computed - where there are ties in the data, set it to F
+                            )
+corr_mit_gp_cal
+```
+  
+Very strong positive correlation: more calories produced = higher gross profits.  
+  
+```{r, echo=FALSE}
+corrplot_mit_gp_cal <- ggplot(c_gp_yld %>% dplyr::filter(scenario == "MIT"), aes(x = gp, y = calories, shape = initDR)) + 
+  geom_point(color = '#44AA99', size = 1) + 
+  scale_shape_manual(values = c(3, 15, 1)) +
+  labs(
+    x = 'Gross profit (£/ha)',
+    y = bquote(Calories~(kcal/m^2))
+    ) +
+  theme_classic() +
+  annotate_text2('Strong positive correlation\n(ρ(160) = 0.91, p < 0.01)\n-> indicates synergistic relationship', x=0.95, y=0.05, hjust=1, size=14, color='#44AA99') #+ 
+  # theme(
+  #   axis.title = element_text(size=18),
+  #   axis.text.x = element_text(size=rel(1.8)),
+  #   axis.text.y = element_text(size=rel(1.8))
+  #   )
+
+corrplot_mit_gp_cal
+```
+ 
+ 
+  
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/analysis-exploration_corrplot_mit_gp_cal.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(corrplot_mit_gp_cal)
+# dev.off()
+```
+
+
+
+
+
+
+#### MIT Gross profit & risk - TO DO
+```{r, echo=FALSE, eval=FALSE}
+# corr_mit_gp_risk <- cor.test(x = c_gp_yld$gp[c_gp_yld$scenario == "MIT"], 
+#                             y = c_gp_yld$risk[c_gp_yld$scenario == "MIT"], 
+#                             method = 'spearman', 
+#                             exact = FALSE # a logical indicating whether an exact p-value should be computed - where there are ties in the data, set it to F
+#                             )
+# corr_mit_gp_risk
+```
+  
+?? correlation: .....  
+  
+```{r, echo=FALSE}
+# corrplot_mit_gp_risk <- ggplot(c_gp_yld %>% dplyr::filter(scenario == "MIT"), aes(x = gp, y = risk)) +
+#   geom_point(color = '#44AA99', size = 1) +
+#   labs(
+#     x = expression("Carbon emissions (kgCO"["2"]~"eq/ha)"),
+#     y = 'Risk (% change)'
+#     ) +
+#   theme_classic() +
+#   annotate_text2('Strong positive correlation\n(ρ(160) = 0.77, p < 0.01)\n-> indicates trade-off relationship', x=0.95, y=0.05, hjust=1, size=14, color='#44AA99') +
+#   theme(
+#     axis.title = element_text(size=18),
+#     axis.text.x = element_text(size=rel(1.8)),
+#     axis.text.y = element_text(size=rel(1.8))
+#     )
+# 
+# corrplot_mit_gp_risk
+set.seed(123)
+vector1 <- runif(100, min = 0, max = 4000) # 100 random values between 0 and 4000
+vector2 <- runif(100, min = 0, max = 4000) # 100 random values between 0 and 4000
+data <- data.frame(vector1, vector2)
+corrplot_mit_gp_risk <- ggplot(data, aes(x = vector1, y = vector2)) +
+  geom_point() +
+  labs(x = "Gross profit",
+       y = "Risk") +
+  theme_classic()
+```
+
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/analysis-exploration_corrplot_mit_gp_risk.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(corrplot_mit_gp_risk)
+# dev.off()
+```
+
+  
+  
+#### MIT Carbon & yield (calories)
+
+```{r, echo=FALSE}
+corr_mit_c_cal <- cor.test(x = c_gp_yld$c_total[c_gp_yld$scenario == "MIT"], 
+                           y = c_gp_yld$calories[c_gp_yld$scenario == "MIT"], 
+                           method = 'spearman', 
+                           exact = FALSE # a logical indicating whether an exact p-value should be computed - where there are ties in the data, set it to F
+                           )
+corr_mit_c_cal
+```
+  
+Strong positive correlation: more calories are produced at the expense of higher carbon emissions.  
+  
+```{r, echo=FALSE}
+corrplot_mit_c_cal <- ggplot(c_gp_yld %>% dplyr::filter(scenario == "MIT"), aes(x = c_total, y = calories, shape = initDR)) + 
+  geom_point(color = '#CC6677', size = 1) + 
+  scale_shape_manual(values = c(3, 15, 1)) +
+  labs(
+    x = expression("Carbon emissions (kgCO"["2"]~"eq/ha)"),
+    y = bquote(Calories~(kcal/m^2))
+    ) +
+  theme_classic() +
+  annotate_text2('Strong positive correlation\n(ρ(160) = 0.77, p < 0.01)\n-> indicates trade-off relationship', x=0.95, y=0.05, hjust=1, size=14, color='#CC6677') #+ 
+  # theme(
+  #   axis.title = element_text(size=18),
+  #   axis.text.x = element_text(size=rel(1.8)),
+  #   axis.text.y = element_text(size=rel(1.8))
+  #   )
+
+corrplot_mit_c_cal
+```
+ 
+ 
+  
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/analysis-exploration_corrplot_mit_c_cal.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(corrplot_mit_c_cal)
+# dev.off()
+```
+  
+
+
+#### MIT Carbon & risk - TO DO
+```{r, echo=FALSE, eval=FALSE}
+# corr_mit_c_risk <- cor.test(x = c_gp_yld$c_total[c_gp_yld$scenario == "MIT"], 
+#                             y = c_gp_yld$risk[c_gp_yld$scenario == "MIT"], 
+#                             method = 'spearman', 
+#                             exact = FALSE # a logical indicating whether an exact p-value should be computed - where there are ties in the data, set it to F
+#                             )
+# corr_mit_c_risk
+```
+  
+?? correlation: .....  
+  
+```{r, echo=FALSE}
+# corrplot_mit_c_risk <- ggplot(c_gp_yld %>% dplyr::filter(scenario == "MIT"), aes(x = c_total, y = risk)) +
+#   geom_point(color = '#44AA99', size = 1) +
+#   labs(
+#     x = expression("Carbon emissions (kgCO"["2"]~"eq/ha)"),
+#     y = 'Risk (% change)'
+#     ) +
+#   theme_classic() +
+#   annotate_text2('Strong positive correlation\n(ρ(160) = 0.77, p < 0.01)\n-> indicates trade-off relationship', x=0.95, y=0.05, hjust=1, size=14, color='#44AA99') +
+#   theme(
+#     axis.title = element_text(size=18),
+#     axis.text.x = element_text(size=rel(1.8)),
+#     axis.text.y = element_text(size=rel(1.8))
+#     )
+# 
+# corrplot_mit_c_risk
+set.seed(123)
+vector1 <- runif(100, min = 0, max = 4000) # 100 random values between 0 and 4000
+vector2 <- runif(100, min = 0, max = 4000) # 100 random values between 0 and 4000
+data <- data.frame(vector1, vector2)
+corrplot_mit_c_risk <- ggplot(data, aes(x = vector1, y = vector2)) +
+  geom_point() +
+  labs(x = "Carbon",
+       y = "Risk") +
+  theme_classic()
+```
+
+
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/analysis-exploration_corrplot_mit_c_risk.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(corrplot_mit_c_risk)
+# dev.off()
+```
+
+  
+  
+#### MIT Yield (calories) & risk - TO DO
+```{r, echo=FALSE, eval=FALSE}
+# corr_mit_cal_risk <- cor.test(x = c_gp_yld$calories[c_gp_yld$scenario == "MIT"], 
+#                             y = c_gp_yld$risk[c_gp_yld$scenario == "MIT"], 
+#                             method = 'spearman', 
+#                             exact = FALSE # a logical indicating whether an exact p-value should be computed - where there are ties in the data, set it to F
+#                             )
+# corr_mit_cal_risk
+```
+  
+?? correlation: .....  
+  
+```{r, echo=FALSE}
+# corrplot_mit_cal_risk <- ggplot(c_gp_yld %>% dplyr::filter(scenario == "MIT"), aes(x = calories, y = risk)) +
+#   geom_point(color = '#44AA99', size = 1) +
+#   labs(
+#     x = expression("Carbon emissions (kgCO"["2"]~"eq/ha)"),
+#     y = 'Risk (% change)'
+#     ) +
+#   theme_classic() +
+#   annotate_text2('Strong positive correlation\n(ρ(160) = 0.77, p < 0.01)\n-> indicates trade-off relationship', x=0.95, y=0.05, hjust=1, size=14, color='#44AA99') +
+#   theme(
+#     axis.title = element_text(size=18),
+#     axis.text.x = element_text(size=rel(1.8)),
+#     axis.text.y = element_text(size=rel(1.8))
+#     )
+# 
+# corrplot_mit_cal_risk
+set.seed(123)
+vector1 <- runif(100, min = 0, max = 4000) # 100 random values between 0 and 4000
+vector2 <- runif(100, min = 0, max = 4000) # 100 random values between 0 and 4000
+data <- data.frame(vector1, vector2)
+corrplot_mit_cal_risk <- ggplot(data, aes(x = vector1, y = vector2)) +
+  geom_point() +
+  labs(x = "Calories",
+       y = "Risk") +
+  theme_classic()
+```
+
+
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/analysis-exploration_corrplot_mit_cal_risk.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(corrplot_mit_cal_risk)
+# dev.off()
+```
+  
+  
+  
+  
+  
+#### MIT Carbon & gross profit
+```{r, echo=FALSE}
+corrplot_mit_gp_c <- ggplot(c_gp_yld %>% dplyr::filter(scenario == "MIT"), aes(x = c_total, y = gp, shape = initDR)) + #, colour = initDR
+  geom_point(color= '#CC6677', size = 1) + #'#2980B9'
+  scale_shape_manual(values = c(3, 15, 1)) +
+  #geom_point() +
+  #geom_smooth(method=lm, se=FALSE, fullrange=TRUE, color='#2C3E50') +
+  #geom_smooth(method = "gam", se = FALSE, formula = y ~ s(log(x)))
+  labs(
+    x = expression("Carbon emissions (kgCO"["2"]~"eq/ha)"),
+    y = "Gross profit (£/ha)"
+    ) +
+  theme_classic() +
+  annotate_text2('Strong positive correlation\n(ρ(160) = 0.70, p < 0.01)\n-> indicates trade-off relationship', x=0.95, y=0.05, hjust=1, size=14, color='#CC6677') + #, fontface=2
+  
+  #annotate_text2('Strong positive correlation', x=0.95, y=0.2, hjust=1, size=14, fontface=2) + 
+  #annotate_text2(expression("ρ"["(160)"]~"= 0.69, p < 0.01"), x=0.95, y=0.1, hjust=1, size=14, fontface=2) + 
+  #annotate_text2('-> indicates trade-off relationship', x=0.95, y=0.02, hjust=1, size=14, fontface=2) + 
+  
+  #annotate("text", x = Inf, y = Inf, label = expression("Strong positive correlation (ρ"["(160)"]~"= 0.69, p < 0.01)"), vjust = 22, hjust = 1, colour = "darkblue") +
+  #annotate("text", x = Inf, y = Inf, label = paste("-> indicates trade-off relationship"), vjust = 35, hjust = 1, colour = "darkblue")
+  #annotate("text", x = Inf, y = Inf, label = paste("ρ(160) = 0.69, $p$ < 0.01"), vjust = 1, hjust = 1)
+  #annotate("text", x = Inf, y = Inf, label = expression(atop("Strong positive correlation (ρ"["(160)"]~"= 0.69, p < 0.01),",paste("-> trade-off relationship"))), vjust = 1, hjust = 1)
+  #annotate("text", x = 4, y = 25, label = "Strong positive correlation\n(ρ"["(160)"]~"= 0.69, p < 0.01)", colour = "red") 
+  
+  theme(
+   axis.title = element_text(size=18),
+   axis.text.x = element_text(size=rel(1.8)),
+   axis.text.y = element_text(size=rel(1.8))
+   )
+
+corrplot_mit_gp_c
+```
+ 
+ 
+  
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/analysis-exploration_corrplot_mit_gp_c.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(corrplot_mit_gp_c)
+# dev.off()
+```
+  
+  
+  
+Positive correlation between gross profit and carbon emissions in MIT scenarios: higher gross profits (good) are correlated with higher carbon emissions (bad). Possible non-linear relationship reaching an asymptote at higher values of x? (so definitely use Spearman's). There are obviously trade-offs here: higher gross profits come at a cost (higher carbon emissions).  
+
+
+```{r}
+corr_mit_c_gp <- cor.test(x = c_gp_yld$gp[c_gp_yld$scenario == "MIT"],
+                          y = c_gp_yld$c_total[c_gp_yld$scenario == "MIT"], 
+                          method = 'spearman', 
+                          exact = FALSE # a logical indicating whether an exact p-value should be computed - where there are ties in the data, set it to F
+                          )
+corr_mit_c_gp
+```
+
+For MIT, there is a strong positive correlation (i.e. a trade-off) between gross profit and carbon emissions (ρ(160) = 0.70, $p$ < 0.01).  
+  
+(When r > 0 and p < 0.05, the two variables are in a trade-offs relationship (i.e., they change in the same direction *which here indicates a trade-off between C and £*), while r < 0 and p < 0.05 indicates a synergistic relationship (i.e., they change in the opposite direction *which here indicates synergy between C and £*). If they are not related (r = 0, p < 0.05), the relationship is neutral. The size of the value reflects the strength of the relationship between the variables.)
+  
+N = 162  (why is n 162?)
+  
+For info on cor.test see (here)[https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/cor.test] - gives details of how it's computed and refs.  
+  
+  
+Check I get same result with `spearman.test` from package (Hmisc)[https://www.rdocumentation.org/packages/Hmisc/versions/5.1-2/topics/biVar], which computes the square of Spearman's rho rank correlation:
+```{r}
+Hmisc::spearman.test(x=c_gp_yld$gp[c_gp_yld$scenario=="MIT"], 
+                     y=c_gp_yld$c_total[c_gp_yld$scenario=="MIT"],
+                     p=1)#for numeric variables, p specifies the order of the Spearman rho^2 to use. The default is p=1 to compute the ordinary rho^2. Use p=2 to compute the quadratic rank generalization to allow non-monotonicity. p is ignored for categorical predictors.
+```
+
+
+The Rsquare above is the square of the value of rho computed using base R:
+```{r}
+0.6952339^2
+```
+
+So, yes, I get the same answer whichever method I use.  
+
+#### Panel plot correlations
+Look at .png file, this doesn't show well in Markdown.  
+```{r, echo=FALSE, eval=FALSE}
+# Make labels for rows and columns
+row_label_1 <- wrap_elements(panel = grid::textGrob('Carbon', rot=90, gp = gpar(fontsize=20, col="black", fontface=2))) #textGrob('Carbon', rot=90))
+row_label_2 <- wrap_elements(panel = grid::textGrob('Yield', rot=90, gp = gpar(fontsize=20, col="black", fontface=2)))
+row_label_3 <- wrap_elements(panel = grid::textGrob('Risk', rot=90, gp = gpar(fontsize=20, col="black", fontface=2)))
+
+col_label_1 <- wrap_elements(panel = grid::textGrob('Gross profit', gp = gpar(fontsize=20, col="black", fontface=2))) #textGrob('Carbon', rot=90))
+col_label_2 <- wrap_elements(panel = grid::textGrob('Carbon', gp = gpar(fontsize=20, col="black", fontface=2)))
+col_label_3 <- wrap_elements(panel = grid::textGrob('Yield', gp = gpar(fontsize=20, col="black", fontface=2)))
+
+# Combine plots into panel plot
+correlations_panel <- row_label_1 + corrplot_mit_gp_c + plot_spacer() + plot_spacer() + 
+                      row_label_2 + corrplot_mit_gp_cal + corrplot_mit_c_cal + plot_spacer() + 
+                      row_label_3 + corrplot_mit_gp_risk + corrplot_mit_c_risk + corrplot_mit_cal_risk +
+                      plot_spacer() + col_label_1 + col_label_2 + col_label_3 +
+                      plot_layout(widths = c(0.1, 1, 1, 1), heights = c(1, 1, 1, 0.1)) 
+```
+
+Save.
+```{r}
+# png("../figures/corrplot_mit.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(correlations_panel)
+# dev.off()
+```
+
+  
+#### Additional analysis? 
+Would it be worth looking at an index of diversity (e.g. number of different crops in 6 yrs, or number of winter wheat crops in 6 yrs) to see if this correlates with gross profit and with carbon emissions? Do more diverse rotations make less money but have lower emissions?   
+
+
+### 5.1.2. BAU - NOT DONE
+#### BAU Gross profit & carbon
+  
+When looking at trade-offs for C emissions and gross profit using a correlation test, it matters that both variables don't act in the same direction i.e., high numbers do NOT represent the 'good' condition for both variables. This means that the interpretation of the Spearman's correlation test is: when r > 0 and p < 0.05, the two variables change in the same direction so in this case that would indicate a trade-offs relationship.  
+
+```{r, echo=FALSE}
+corrplot_bau_gp_c <- ggplot(c_gp_yld %>% dplyr::filter(scenario == "BAU"), aes(x = gp, y = c_total)) + #, colour = initDR
+  geom_point(color= '#CC6677', size = 1) + #'#2980B9'
+  #scale_shape_manual(values = c(3, 15, 1)) +
+  #geom_point() +
+  #geom_smooth(method=lm, se=FALSE, fullrange=TRUE, color='#2C3E50') +
+  #geom_smooth(method = "gam", se = FALSE, formula = y ~ s(log(x)))
+  labs(
+    x = "Gross profit (£/ha)",
+    y = expression("Carbon emissions (kgCO"["2"]~"eq/ha)")
+    ) +
+  theme_classic() +
+  annotate_text2('Strong positive correlation\n(ρ(160) = 0.74, p < 0.01)\n-> indicates trade-off relationship', x=0.95, y=0.05, hjust=1, size=14, color='#CC6677') + #, fontface=2
+  theme(
+   axis.title = element_text(size=18),
+   axis.text.x = element_text(size=rel(1.8)),
+   axis.text.y = element_text(size=rel(1.8))
+   ) + 
+  geom_smooth(method="lm", col="black") +
+  geom_line(c_gp_yld %>% dplyr::filter(scenario == "MIT"), color = initDR)
+
+corrplot_bau_gp_c
+```
+ 
+ 
+  
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/analysis-exploration_corrplot_mit_gp_c.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(corrplot_mit_gp_c)
+# dev.off()
+```
+  
+  
+  
+Positive correlation between gross profit and carbon emissions in MIT scenarios: higher gross profits (good) are correlated with higher carbon emissions (bad). Possible non-linear relationship reaching an asymptote at higher values of x? (so definitely use Spearman's). There are obviously trade-offs here: higher gross profits come at a cost (higher carbon emissions).  
+
+
+```{r, echo=FALSE, eval = FALSE}
+png("../figures/analysis-exploration_corrplot_bau_c_gp.png",
+    height = 10, width = 15, units = "in", res = 300)
+print(corrplot_bau_c_gp)
+dev.off()
+```
+
+  
+  
+```{r, echo=FALSE, eval=FALSE}
+corr_bau_c_gp <- cor.test(x=c_gp_yld$gp[c_gp_yld$scenario=="BAU"], 
+                     y=c_gp_yld$c_total[c_gp_yld$scenario=="BAU"], 
+                     method = 'spearman', 
+         exact = FALSE # a logical indicating whether an exact p-value should be computed - where there are ties in the data, set it to F
+         )
+corr_bau_c_gp
+```
+  
+For BAU, there is a strong positive correlation (i.e. a trade-off) between gross profit and carbon emissions (ρ(160) = 0.71, $p$ < 0.001).  
+  
+```{r, echo=FALSE, eval=FALSE}
+Hmisc::spearman.test(x=c_gp_yld$gp[c_gp_yld$scenario=="BAU"], 
+                     y=c_gp_yld$c_total[c_gp_yld$scenario=="BAU"],
+                     p=1)
+```
+
+
+
+## 5.2. Trade-offs across scenarios - i.e., from switching 
+  
+This section asks what the trade-offs are if you switch from BAU to MIT. Use rotation means rather than yearly values as we're interested in the effect of the whole strategy.  
+  
+Look at correlations of the *differences between scenarios* for this - i.e., opportunity costs, or differences in carbon emissions - so we can look at trade-offs inherent in switching from BAU to MIT.  
+  
+### Opportunity cost & difference in carbon emissions
+
+Correlation test.  
+
+#### Calculate [opportunity costs] for each year and then average across a rotation 
+```{r}
+corr_switch_oc_c <- cor.test(x = trdoff_rot$oc_mean[trdoff_rot$scenario == "MIT"], 
+                          y = trdoff_rot$c_emiss_diff_mean[trdoff_rot$scenario == "MIT"], 
+                          method = 'spearman', 
+                          exact = FALSE # a logical indicating whether an exact p-value should be computed - where there are ties in the data, set it to F
+                          )
+corr_switch_oc_c
+```
+  
+    
+The degrees of freedom is calculated as N – 2. Here, n=27  
+  
+There is a moderate positive correlation (i.e. a slight trade-off) between the difference in gross profit and carbon emissions between MIT and BAU scenarios ($r$(25) = 0.55, $p$ < 0.01).  
+
+
+```{r}
+corr_diffs_plot <- ggplot(trdoff_rot %>% 
+                            dplyr::filter(scenario == "MIT"),
+                          aes(x=oc_mean, y=c_emiss_diff_mean, colour = initDR)) + 
+  geom_jitter(size = 3, pch = 1, width = 3) + 
+  #geom_point(color='#2980B9', size = 3) + 
+  geom_smooth(method=lm, se=FALSE, fullrange=TRUE, color='#2C3E50') +
+  labs(
+    x = "Difference in gross profit,\nMIT - BAU (£/ha)", 
+    y = expression(atop("Difference in carbon emissions,",paste("MIT - BAU (kgCO"["2"]~"eq/ha)")))
+    #y = expression("Difference in carbon emissions, MIT - BAU (kgCO"["2"]~"eq/ha)")
+    ) +
+  # Arrows for opp costs:
+  geom_segment(aes(x=5, y=-1150, xend=50, yend=-1150), 
+               arrow = arrow(length=unit(.3, 'cm')),
+               lineend = "round", 
+               linejoin = "round",
+               linewidth = 0.8,
+               col='black') +
+  annotate("text", x = 55, y = -1150, label = "MIT better",
+           #vjust = 0.3, 
+           hjust = -0.01, # -ve value moves it to the right
+           size = 4) +
+  geom_segment(aes(x=-5, y=-1150, xend=-50, yend=-1150), 
+               arrow = arrow(length=unit(.3, 'cm')),
+               lineend = "round", 
+               linejoin = "round",
+               linewidth = 0.8,
+               col='black') +
+  annotate("text", x = -55, y = -1150, label = "BAU better",
+           #vjust = 0.3, 
+           hjust = 1, # -ve value moves it to the right
+           size = 4) +
+  # Arrows for carbon emissions:
+  # down arrow
+  geom_segment(aes(x=-380, y=-20, xend=-380, yend=-200), 
+               arrow = arrow(length=unit(.3, 'cm')),
+               lineend = "round", 
+               linejoin = "round",
+               linewidth = 0.8,
+               col='black') +
+  annotate("text", x = -380, y = -250, label = "MIT better",
+           hjust = 0.22, # as number gets lower it moves it more to the right
+           size = 4) +
+  # up arrow
+  geom_segment(aes(x=-380, y=20, xend=-380, yend=200), 
+               arrow = arrow(length=unit(.3, 'cm')),
+               lineend = "round", 
+               linejoin = "round",
+               linewidth = 0.8,
+               col='black') +
+  annotate("text", x = -380, y = 250, label = "BAU better",
+           hjust = 0.2, # as number gets lower it moves it more to the right
+           size = 4) +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    #axis.title.x = element_markdown(),
+    axis.text.y = element_text(size=rel(2))
+    ) +
+  annotate("text", x = -90, y = 250, label = "Spearman's Rank",
+           #hjust = 0.2, # as number gets lower it moves it more to the right
+           size = 3) +
+  annotate("text", x = -90, y = 190, label = "r(25) = 0.55, p < 0.01",
+           #hjust = 0.2, # as number gets lower it moves it more to the right
+           size = 3) +
+  #scale_color_viridis_d() +
+  # shade area of synergies
+  xlim(-400, 170) +
+  annotate('rect', xmin=0, xmax=170, ymin=-1200, ymax=0, alpha=.2, fill='lightgreen') +
+  labs(colour = "Initial density\nand resistance") +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    axis.text.y = element_text(size=rel(2)),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=14)
+    ) +
+  geom_hline(yintercept = 0, colour = "darkgrey", lty = 2) +
+  geom_vline(xintercept = 0, colour = "darkgrey", lty = 2)
+
+corr_diffs_plot
+```
+
+
+For both variables, I did MIT-BAU. Therefore....
+for gross profit, a +ve value means MIT wins because a high gross profit is better than a low gross profit;
+for C emissions, -ve value means MIT wins because a low C emissions are better than high C emissions.
+
+This figure shows there is a trade-off between gross profit and carbon emissions.  
+Top right quadrant: When it's financially better to crop MIT rotations, the resulting carbon emissions are greater (i.e. worse) than had the farmer continued cropping BAU.  
+Bottom left quadrant: When it's financially better to crop BAU rotations, the resulting carbon emissions are greater (i.e. worse) than had the farmer switched to cropping MIT.  
+
+The green area indicates that MIT has higher gross profits and lower carbon emissions than BAU. It's largely LD-LR strategies that don't have trade-offs.  
+  
+
+
+
+```{r, echo=FALSE, eval=FALSE}
+# png("../figures/analysis-exploration_correlation_diff in C emiss and Opp costs.png",
+#     height = 10, width = 17, units = "in", res = 300)
+# print(corr_diffs_plot)
+# dev.off()
+```
+
+
+
+
+
+
