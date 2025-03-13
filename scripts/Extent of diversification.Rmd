@@ -1,0 +1,463 @@
+---
+title: "Extent of diversification"
+author: "Alexa Varah"
+date: "2024-11-26"
+output: html_document
+---
+
+
+# 1. Load packages and data
+```{r }
+rm(list = ls(all = TRUE)) # clear envt
+library(tidyverse)
+library(readxl)
+#install.packages("scatterplot3d")
+library("scatterplot3d")
+library(scales) # to rescale data
+#install.packages("fmsb")
+library(fmsb) # for radar plots (but needs Java)
+remotes::install_github("ricardo-bion/ggradar")
+library(ggradar)
+library(radar)
+library(ggplot2)
+library(tidyverse)
+library(scales)
+library(showtext)
+
+#library(palmerpenguins)
+
+# load data
+mgmt_data <- read_xlsx("../data/strategy design summary.xlsx",3) #,trim_ws = FALSE
+```
+
+
+# 2. 3D plot
+Transform data from long to wide.
+```{r}
+data_wide <- mgmt_data %>% 
+  #dplyr::filter(soil_type == 'heavy') %>% 
+  spread(design_element, value) %>% 
+  dplyr::mutate(
+    strategy = factor(strategy)
+  )
+
+data_wide
+```
+
+
+```{r}
+
+
+
+
+#source('https://www.sthda.com/sthda/RDoc/functions/addgrids3d.r')
+#colors <- c("#999999", "#993333", "#993333", "#993333", "#E69F00", "#E69F00", "#E69F00", "#56B4E9", "#56B4E9", "#56B4E9")
+colors <- c("#999999", "#993333", "#E69F00", "#56B4E9")
+colors <- colors[as.numeric(data_wide$strategy)]
+
+#scatterplot3d(x = data_wide[,c(5, 10, 3)], pch = 16, color = colors)
+
+scatterplot3d(x = data_wide[,c(12, 5, 6)], pch = 16, color = colors,
+              grid=TRUE, box=FALSE)
+#addgrids3d(data_wide[,c(10, 3, 5)], grid = c("xy", "xz", "yz"))
+```
+
+# 3. Radar plots
+```{r}
+# mgmt_data %>% 
+#   dplyr::group_by(design_element, strategy) %>% 
+#   dplyr::mutate(
+#   max_value = max(value),
+#   min_value = min(value),
+#   mean_value = mean(value)
+#   ) %>% 
+#   dplyr::distinct(design_element,strategy, .keep_all = TRUE) %>% 
+#   dplyr::select(-c(region, soil_type, value)) %>% 
+#   # now transform from wide to long
+#   
+```
+
+
+Scale data so it's all between 0 and 1, then find mean across soil types and init den-res, plus absolute min and max across all groups.
+```{r}
+scaled_data_fmsb <- mgmt_data %>%
+  
+  # Scale data between 0 and 1
+  dplyr::group_by(design_element) %>% 
+  dplyr::mutate(
+    scaled_value = rescale(value, to=c(0,1)) # scale values to be between 0 & 1
+  ) %>% 
+  dplyr::ungroup() %>% 
+  
+  # Take average values across soil types (!! N.B. also plot average values across regions, keeping soil types separate)
+  dplyr::select(-value) %>% # remove superseded column
+  dplyr::group_by(design_element, strategy, region) %>%
+  dplyr::mutate(mean_scaled_value = mean(scaled_value)
+  ) %>%
+  dplyr::distinct(design_element, strategy, region, .keep_all = TRUE) %>%
+  dplyr::select(-c(soil_type, scaled_value)) %>% # remove soil type and original scaling
+  
+  # Convert to wide format for input into radar function
+  tidyr::pivot_wider(names_from = design_element, values_from = mean_scaled_value) %>%
+  dplyr::ungroup() %>% 
+
+  # Specify order of levels for region
+  dplyr::mutate(
+    region = factor(region, levels = c("all", "north", "central", "east")),
+    strategy = factor(strategy, levels = c("BAU", "LD-LR", "LD-HR", "HD-HR"))
+    ) %>% 
+  arrange(strategy, region) %>% 
+  
+  # Create one variable concatenating strategy and region
+  dplyr::mutate(strat_reg = paste(strategy, region, sep = '_')) %>% 
+  dplyr::relocate(strat_reg) %>% 
+  dplyr::select(-c(strategy, region)) %>% 
+  
+  # Add two rows, one each for global max and min
+  # Max
+  tibble::add_row(strat_reg = 'max', 
+                  n_diff_crops = 1, 
+                  n_spring_crops = 1,
+                  n_crop_functional_types = 1, 
+                  tot_n_ssb = 1, 
+                  tot_vol_gly = 1, 
+                  tot_vol_selherb = 1, 
+                  mean_n_actives = 1, 
+                  tot_n_actives = 1,
+                  mean_tillage_depth = 1,
+                  .before = 1) %>% 
+  # Min
+  tibble::add_row(strat_reg = 'min',
+                  n_diff_crops = 0, 
+                  n_spring_crops = 0,
+                  n_crop_functional_types = 0, 
+                  tot_n_ssb = 0, 
+                  tot_vol_gly = 0, 
+                  tot_vol_selherb = 0, 
+                  mean_n_actives = 0, 
+                  tot_n_actives = 0,
+                  mean_tillage_depth = 0,
+                  .before = 2) %>% 
+  
+  # Rename variables
+  rename('Number of\ndifferent crops' = n_diff_crops,
+         'Number of\nspring crops' = n_spring_crops,
+         'Number of \ncrop types' = n_crop_functional_types,
+         'Glyphosate\n(total volume)' = tot_vol_gly,
+         'Selective\nherbicide\n(total volume)' = tot_vol_selherb,
+         #`Selective herbicide` = tot_vol_selherb,
+         'Actives\n(total number)'  = tot_n_actives,
+         'Tillage\n(mean depth)' = mean_tillage_depth
+         )
+
+  
+
+  # dplyr::group_by(design_element, strategy) %>%
+  # dplyr::mutate(
+  # max_value = max(value),
+  # min_value = min(value),
+  # mean_value = mean(value)
+  # ) %>%
+  # dplyr::distinct(design_element,strategy, .keep_all = TRUE) %>%
+  # dplyr::select(-c(region, soil_type, value)) %>%
+  # dplyr::ungroup() %>% 
+  # # find global min and max values across all variables
+  # dplyr::mutate(
+  # max_abs = max(max_value),
+  # min_abs = min(max_value)
+  # ) %>% 
+  # # remove min and max of each group, don't need it
+  # dplyr::select(-c(min_value, max_value))
+  # 
+  # now transform from wide to long
+
+```
+
+
+
+
+Try plotting as a radar plot. First, pull out just the data we need for the plot.
+
+```{r}
+# BAU and LR-LR
+bau_LDLR <- scaled_data_fmsb %>% 
+  dplyr::filter(grepl('max|min|LD-LR|BAU', strat_reg)) %>% 
+  dplyr::select(-c(strat_reg, tot_n_ssb, mean_n_actives))
+
+```
+
+```{r}
+rad_LDLR <- fmsb::radarchart(bau_LDLR, 
+                 plty = c(0,1,3,1), # line type for polygons
+                 plwd = c(0.5,0.5,3,0.5), # line width for polygons
+                 pfcol = c('#99999980', NA, NA, NA) # fill for polygons
+                 ) 
+
+rad_LDLR
+```
+
+
+```{r}
+# png("../figures/radar_test_LD-LR.png",
+#     height = 15, width = 15, units = "in", res = 300)
+# print(rad_LDLR)
+# dev.off()
+
+
+png("../figures/radar_test_LD-LR.png", height = 15, width = 15, units = "in", res = 300)
+#par(mar = c(4.1, 4.4, 4.1, 1.9), xaxs="i", yaxs="i")
+fmsb::radarchart(bau_LDLR, 
+                 plty = c(0,1,3,1), # line type for polygons
+                 plwd = c(0.5,0.5,3,0.5), # line width for polygons
+                 pfcol = c('#99999980', NA, NA, NA) # fill for polygons
+                 ) 
+dev.off()
+```
+
+Test radar chart
+```{r}
+maxmin <- data.frame(
+ total=c(5, 1),
+ phys=c(15, 3),
+ psycho=c(3, 0),
+ social=c(5, 1),
+ env=c(5, 1))
+# data for radarchart function version 1 series, minimum value must be omitted from above.
+RNGkind("Mersenne-Twister")
+set.seed(123)
+dat <- data.frame(
+ total=runif(3, 1, 5),
+ phys=rnorm(3, 10, 2),
+ psycho=c(0.5, NA, 3),
+ social=runif(3, 1, 5),
+ env=c(5, 2.5, 4))
+dat <- rbind(maxmin, dat)
+VARNAMES <- c("Total\nQOL", "Physical\naspects", "Phychological\naspects", 
+ "Social\naspects", "Environmental\naspects")
+op <- par(mar=c(1, 2, 2, 1), mfrow=c(2, 3))
+radarchart(dat, axistype=1, seg=5, plty=1, vlabels=VARNAMES, 
+ title="(axis=1, 5 segments, with specified vlabels)", vlcex=0.5)
+```
+
+
+
+# ggradartutorial
+
+Let’s start by loading the packages needed to build the figure. ggradar is the star of the day. This package does only one thing, but it does it very well. Thanks to it, making ggplot2 based radar charts is extremely easy.
+
+Note: ggradar can be installed from github with remotes::install_github("ricardo-bion/ggradar").
+
+```{r}
+library(ggradar)
+library(palmerpenguins)
+library(tidyverse)
+library(scales)
+library(showtext)
+```
+
+Use font_add_google() to download fonts. The second argument is an (optional) alias that will be used throughout the plot.
+```{r}
+font_add_google("Lobster Two", "lobstertwo")
+font_add_google("Roboto", "roboto")
+
+# Showtext will be automatically invoked when needed
+showtext_auto()
+```
+
+
+
+```{r}
+data("penguins", package = "palmerpenguins")
+head(penguins, 3)
+```
+
+After dropping observations with missing values, it’s necessary to compute the mean value for the numerical variables that will be displayed in the radar chart. Then, with the aid of the rescale() function from the scales package, these summaries are re-scaled to the [0, 1] interval.
+```{r}
+penguins_radar <- penguins %>%
+  drop_na() %>%
+  group_by(species) %>%
+  summarise(
+    avg_bill_length = mean(bill_length_mm),
+    avg_bill_dept = mean(bill_depth_mm),
+    avg_flipper_length = mean(flipper_length_mm),
+    avg_body_mass = mean(body_mass_g)
+  ) %>%
+  ungroup() %>%
+  mutate_at(vars(-species), rescale)
+```
+
+Creating a radar chart with ggradar is as easy as calling ggradar(data). In this case, the pipe operator %>% is used to pass the data frame to the function.
+```{r}
+plt <- penguins_radar %>%
+  ggradar(
+    font.radar = "roboto",
+    grid.label.size = 13,  # Affects the grid annotations (0%, 50%, etc.)
+    axis.label.size = 8.5, # Afftects the names of the variables
+    group.point.size = 3   # Simply the size of the point 
+  )
+
+plt
+```
+
+Make this with my data.
+```{r}
+scaled_data <- mgmt_data %>%
+  
+  # First, scale data between 0 and 1
+  dplyr::group_by(design_element) %>% 
+  dplyr::mutate(
+    scaled_value = rescale(value, to=c(0,1)) # scale values to be between 0 & 1
+  ) %>% 
+  dplyr::ungroup() %>% 
+  
+  # Take average values across soil types (!! N.B. also plot average values across regions, keeping soil types separate)
+  dplyr::select(-value) %>% # remove superseded column
+  dplyr::group_by(design_element, strategy, region) %>%
+  dplyr::mutate(mean_scaled_value = mean(scaled_value)
+  ) %>%
+  dplyr::distinct(design_element, strategy, region, .keep_all = TRUE) %>%
+  dplyr::select(-c(soil_type, scaled_value)) %>% # remove soil type and original scaling
+  
+  # Convert to wide format for input into radar function
+  tidyr::pivot_wider(names_from = design_element, values_from = mean_scaled_value) %>%
+  dplyr::ungroup() %>% 
+
+  # Specify order of levels for region
+  dplyr::mutate(
+    region = factor(region, levels = c("all", "north", "central", "east")),
+    strategy = factor(strategy, levels = c("BAU", "LD-LR", "LD-HR", "HD-HR"))
+    ) %>% 
+  arrange(strategy, region) %>% 
+  
+  # Create one variable concatenating strategy and region
+  dplyr::mutate(strat_reg = paste(strategy, region, sep = '_')) %>% 
+  dplyr::relocate(strat_reg) %>% 
+  dplyr::select(-c(strategy, region))
+```
+
+Plot HD-HR.
+```{r}
+rad_HDHR <- scaled_data %>%
+  dplyr::filter(grepl('HD-HR|BAU', strat_reg)) %>% 
+  dplyr::select(-c(tot_n_ssb, mean_n_actives)) %>% 
+  dplyr::mutate(strat_reg = factor(strat_reg, levels = c("BAU_all", "HD-HR_north", "HD-HR_central", "HD-HR_east"))) %>% 
+  arrange(strat_reg) %>% 
+  ggradar(
+    #fill = TRUE,
+    font.radar = "roboto",
+    grid.label.size = 13,  # Affects the grid annotations (0%, 50%, etc.)
+    axis.label.size = 8.5, # Affects the names of the variables
+    group.point.size = 3   # Simply the size of the point 
+  ) + 
+  # make it pretty
+  theme(
+    legend.position = c(1, 0),  
+    legend.justification = c(1, 0),
+    legend.text = element_text(size = 28),
+    legend.key = element_rect(fill = NA, color = NA),
+    legend.background = element_blank()
+  )
+
+rad_HDHR
+```
+
+
+```{r}
+png("../figures/radar_test_HD-HR.png",
+    height = 15, width = 15, units = "in", res = 300)
+print(rad_HDHR)
+dev.off()
+```
+
+
+Plot LD-HR.
+```{r}
+rad_LDHR <- scaled_data %>%
+  dplyr::filter(grepl('LD-HR', strat_reg)) %>% 
+  dplyr::select(-c(tot_n_ssb, mean_n_actives)) %>% 
+  dplyr::mutate(strat_reg = factor(strat_reg, levels = c("LD-HR_north", "LD-HR_central", "LD-HR_east"))) %>% 
+  arrange(strat_reg) %>% 
+  ggradar(
+    font.radar = "roboto",
+    grid.label.size = 13,  # Affects the grid annotations (0%, 50%, etc.)
+    axis.label.size = 8.5, # Afftects the names of the variables
+    group.point.size = 3   # Simply the size of the point 
+  ) + 
+  # make it pretty
+  theme(
+    legend.position = c(1, 0),  
+    legend.justification = c(1, 0),
+    legend.text = element_text(size = 28),
+    legend.key = element_rect(fill = NA, color = NA),
+    legend.background = element_blank()
+  )
+
+rad_LDHR
+```
+
+
+```{r}
+png("../figures/radar_test_LD-HR.png",
+    height = 15, width = 15, units = "in", res = 300)
+print(rad_LDHR)
+dev.off()
+```
+
+
+
+
+```{r}
+if(!require('car')) {
+    install.packages('car')
+    library('car')
+}
+```
+
+```{r}
+if (interactive() && requireNamespace("rgl", quietly = TRUE) && requireNamespace("mgcv", quietly = TRUE)) {
+  library(rgl)
+  library(mgcv)
+  
+  scatter3d(prestige ~ income + education, data=Duncan, id=list(n=3))
+  Sys.sleep(5) # wait 5 seconds
+  scatter3d(prestige ~ income + education | type, data=Duncan)
+  Sys.sleep(5)
+  scatter3d(prestige ~ income + education | type, surface=FALSE,
+            ellipsoid=TRUE, revolutions=3, data=Duncan)
+  scatter3d(prestige ~ income + education, fit=c("linear", "additive"),
+            data=Prestige)
+  Sys.sleep(5)
+  scatter3d(prestige ~ income + education | type,
+            radius=(1 + women)^(1/3), data=Prestige)
+  Sys.sleep(5)
+  
+  if (requireNamespace("mvtnorm", quietly = TRUE)) {
+    library(mvtnorm)
+    local({
+      set.seed(123)
+      Sigma <- matrix(c(
+        1, 0.5,
+        0.5, 1),
+        2, 2
+      )
+      X <- rmvnorm(200, sigma=Sigma)
+      D <- data.frame(
+        x1 = X[, 1],
+        x2 = X[, 2]
+      )
+      D$y <- with(D, 10 + 1*x1 + 2*x2 + 3*x1*x2 + rnorm(200, sd=3))
+      # plot true regression function
+      scatter3d(y ~ x1 + x2, D, 
+                reg.function=10 + 1*x + 2*z + 3*x*z,
+                fit="quadratic", revolutions=2)
+    })
+  }
+}
+
+if (FALSE) {  # requires user interaction to identify points
+  # drag right mouse button to identify points, click right button in open area to exit
+  scatter3d(prestige ~ income + education, data=Duncan, id=list(method="identify"))
+  scatter3d(prestige ~ income + education | type, data=Duncan, id=list(method="identify"))
+}
+```
+
