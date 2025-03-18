@@ -351,6 +351,50 @@ sources <- dplyr::left_join(mean_df, min_df, by = c("region", "soiltype", "initD
 ```
 
 
+## 3.4. Mean difference in C emissions per initDR
+This gives min and max values across regions and soil types. Used in the paper.  
+```{r}
+c_gp_yld %>%
+  
+  # 1. Calculate rotation mean gp, yield, landuse, GHG emiss
+  dplyr::group_by(scenario, region, soiltype, initDR) %>% 
+  dplyr::mutate(
+    ghg_mean = mean(c_total)
+  ) %>% 
+  ungroup() %>% 
+  dplyr::select(c(scenario:initDR, ghg_mean)) %>% 
+  dplyr::distinct(scenario, region, soiltype, initDR, .keep_all = TRUE) %>% 
+  
+  # 2. Calculate difference between MIT and BAU
+  dplyr::group_by(region, soiltype, initDR) %>% 
+  dplyr::mutate(
+    ghg_diff = ghg_mean - ghg_mean[scenario == "BAU"]
+  ) %>% 
+  ungroup() %>% 
+  
+  # 3. Calculate min and max values (this grouping will give range across region and soil types)
+  dplyr::filter(scenario == "MIT") %>% 
+  dplyr::group_by(initDR) %>%
+  dplyr::mutate(
+    ghg_diff_min = min(ghg_diff, na.rm = TRUE),
+    ghg_diff_max = max(ghg_diff, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  
+  # 5. Calculate mean for each level of initDR
+  dplyr::group_by(initDR) %>% 
+  dplyr::mutate(
+    ghg_diff_mean = mean(ghg_diff)
+  ) %>% 
+  
+  #Select just useful columns and filter out duplicates
+  dplyr::select(initDR, 
+                ghg_diff_mean, ghg_diff_min, ghg_diff_max) %>% 
+  dplyr::distinct(initDR, .keep_all = TRUE) %>% 
+  arrange(initDR)
+```
+
+
 # 4. Summary table in paper: Percentage change in gp, C, calories, landuse, for each level of initDR
 ## 4.1. Calculate % change from rotation means for 3 levels of initDR
 Here, I calculate the mean gp, kcal, land use, and GHG emissions across the rotation, then calculate the difference between BAU and MIT for each rotation, then calculate the % change for the rotation. The min and max values show the range across regions and soil types.  
@@ -463,53 +507,9 @@ write.csv(pc_change_rotn, "../output/summarytable_from_rotn_means.csv", row.name
 
 
 
-# 5. Mean difference in C emissions per initDR
-This gives min and max values across regions and soil types. Used in the paper.  
-```{r}
-c_gp_yld %>%
-  
-  # 1. Calculate rotation mean gp, yield, landuse, GHG emiss
-  dplyr::group_by(scenario, region, soiltype, initDR) %>% 
-  dplyr::mutate(
-    ghg_mean = mean(c_total)
-  ) %>% 
-  ungroup() %>% 
-  dplyr::select(c(scenario:initDR, ghg_mean)) %>% 
-  dplyr::distinct(scenario, region, soiltype, initDR, .keep_all = TRUE) %>% 
-  
-  # 2. Calculate difference between MIT and BAU
-  dplyr::group_by(region, soiltype, initDR) %>% 
-  dplyr::mutate(
-    ghg_diff = ghg_mean - ghg_mean[scenario == "BAU"]
-  ) %>% 
-  ungroup() %>% 
-  
-  # 3. Calculate min and max values (this grouping will give range across region and soil types)
-  dplyr::filter(scenario == "MIT") %>% 
-  dplyr::group_by(initDR) %>%
-  dplyr::mutate(
-    ghg_diff_min = min(ghg_diff, na.rm = TRUE),
-    ghg_diff_max = max(ghg_diff, na.rm = TRUE)
-  ) %>%
-  ungroup() %>%
-  
-  # 5. Calculate mean for each level of initDR
-  dplyr::group_by(initDR) %>% 
-  dplyr::mutate(
-    ghg_diff_mean = mean(ghg_diff)
-  ) %>% 
-  
-  #Select just useful columns and filter out duplicates
-  dplyr::select(initDR, 
-                ghg_diff_mean, ghg_diff_min, ghg_diff_max) %>% 
-  dplyr::distinct(initDR, .keep_all = TRUE) %>% 
-  arrange(initDR)
-```
 
-
-
-# 6. Plots
-## 6.1. Diversification - histogram
+# 5. Plots
+## 5.1. Diversification - histogram
 
 Plot scaled rotation values of crop diversity, stale seedbeds, herbicide volumes:
 ```{r}
@@ -679,6 +679,10 @@ png("../figures/bg_density_yr6.png",
     height = 6, width = 18, units = "in", res = 300)
 print(bg_density_yr6)
 dev.off()
+
+pdf("../figures/bg_density_yr6.pdf", height = 10, width = 25)
+print(bg_density_yr6)
+dev.off()
 ```
 
 
@@ -688,9 +692,9 @@ nrow(res_tidy %>% filter(scenario == "MIT", initDR3 == "HD-HR", year == 6))
 ```
 
 
-## 6.3. Profit, calories, GHG emissions - panel plots
+## 5.3. Profit, calories, GHG emissions - panel plots
 
-### 6.3.1. Direction of signs - what wins?
+### 5.3.1. Direction of signs - what wins?
 Difference in *gross profit: +ve value wins*  
 Difference in gross profit (opp cost) = money lost by switching = difference in gross profit MIT-BAU.  
 So if  
@@ -723,7 +727,7 @@ Could switch the sign on opportunity costs (would then be BAU-MIT) so that for b
 
   
   
-### 6.3.2. Create panel plots
+### 5.3.2. Create panel plots
 
 ```{r, echo=FALSE}
 # Specify panel labels
@@ -846,7 +850,7 @@ dev.off()
 
 
 
-## 7.3. Supplementary Fig S?? 
+## 5.3. Supplementary Fig S?? 
 
 ```{r}
 
@@ -940,8 +944,8 @@ E_L
 
 
 
-## 7.3. Figure S8 - Plot change in GHG emissions by source
-### 7.3.1. Specify panel labels
+## 5.4. Figure S8 - Plot change in GHG emissions by source
+### 5.4.1. Specify panel labels
   
 ```{r, specify-panel-labels, echo=FALSE}
 denres.labs <- c("LD-LR", "LD-HR", "HD-HR") # new
@@ -951,7 +955,7 @@ soiltype.labs <- c("Heavy soil", "Medium soil", "Light soil") # new
 names(soiltype.labs) <- c("heavy", "medium", "light") # original
 ```
 
-### 7.3.5. Combine plots
+### 5.4.2. Make plots & combine
 -ve value means MIT wins (green = MIT wins, orange = MIT loses) 
 ```{r}
 # north ----
