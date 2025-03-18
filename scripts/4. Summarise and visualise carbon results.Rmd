@@ -61,7 +61,7 @@ levels(c_emis$initDR)
 
 
 
-# 3 Emissions - summarise and visualise
+# 3. Emissions - summarise and visualise
 
 ## 3.1. Table - Mean emissions per scenario
 
