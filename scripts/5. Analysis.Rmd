@@ -89,6 +89,7 @@ nobs <- function(x) length(x[!is.na(x)])
 
 ## 2.2. Load data
 ```{r}
+# Load data on profit, yield & carbon----
 c_gp_yld <- read.csv("../output/trade_offs_tidy.csv", header = T) %>% 
   dplyr::mutate(
     scenario = factor(scenario, levels = c("BAU", "MIT")),
@@ -96,165 +97,110 @@ c_gp_yld <- read.csv("../output/trade_offs_tidy.csv", header = T) %>%
     soiltype = factor(soiltype, levels = c("heavy", "medium","light")),
     initDR = factor(initDR, levels = c("LD-LR", "LD-HR", "HD-HR"))
     )
-```
 
-# 3. Summary table in paper: Percentage change in gp, C, calories, landuse, for each level of initDR
-## 3.1. Calculate % change from rotation means for 3 levels of initDR
-Here, I calculate the mean gp, kcal, land use, and GHG emissions across the rotation, then calculate the difference between BAU and MIT for each rotation, then calculate the % change for the rotation. The min and max values show the range across regions and soil types.  
-```{r}
-pc_change_rotn <- c_gp_yld %>%
-  
-  # 1. Calculate rotation mean for gp, yield, landuse, GHG emiss
-  dplyr::group_by(scenario, region, soiltype, initDR) %>% 
+# Load management strategy data----
+strat <- read_xlsx("../data/strategy_design_summary.xlsx",2) %>% 
   dplyr::mutate(
-    # gross profit mean
-    gp_mean = mean(gp),
-    cal_mean = mean(calories),
-    lu_mean = mean(land_use),
-    ghg_mean = mean(c_total)
-  ) %>% 
-  ungroup() %>% 
-  dplyr::select(c(scenario:initDR, gp_mean:ghg_mean)) %>% 
-  dplyr::distinct(scenario, region, soiltype, initDR, .keep_all = TRUE) %>% 
-  
-  # 2. Calculate difference between MIT and BAU
-  dplyr::group_by(region, soiltype, initDR) %>% 
-  dplyr::mutate(
-    gp_diff = gp_mean - gp_mean[scenario == "BAU"],
-    cal_diff = cal_mean - cal_mean[scenario == "BAU"],
-    lu_diff = lu_mean - lu_mean[scenario == "BAU"],
-    ghg_diff = ghg_mean - ghg_mean[scenario == "BAU"]
-  ) %>% 
-  ungroup() %>% 
-  
-  # 3. Calculate percentage change
-  dplyr::group_by(region, soiltype, initDR) %>% 
-  dplyr::mutate(
-    
-    # gross profit % change
-    gp_pc = (gp_diff/gp_mean[scenario == "BAU"])*100, # opportunity cost is already the difference in gross profit 
-    
-    # calories % change
-    kcal_pc = (cal_diff/cal_mean[scenario == "BAU"])*100,    
-    
-    # land use % change
-    landuse_pc = (lu_diff/lu_mean[scenario == "BAU"])*100,  
-    
-    # carbon emissions % change
-    ghg_pc = (ghg_diff/ghg_mean[scenario == "BAU"])*100
-    
-  ) %>% 
-  ungroup() %>% 
-  
-  # 4. Calculate min and max values (this grouping will give range across region and soil types)
-  dplyr::filter(scenario == "MIT") %>% 
-  dplyr::group_by(initDR) %>%
-  dplyr::mutate(
+    scenario = as.factor(scenario),
+    design_element = as.factor(design_element),
+    initdenres = as.factor(initdenres),
+    region = as.factor(region),
+    soil_type = as.factor(soil_type)
+  ) 
 
-    # gross profit difference min & max
-    gp_pc_min = min(gp_pc, na.rm = TRUE),
-    gp_pc_max = max(gp_pc, na.rm = TRUE),
-
-    # calories difference min & max
-    kcal_pc_min = min(kcal_pc, na.rm = TRUE),
-    kcal_pc_max = max(kcal_pc, na.rm = TRUE),
-
-    # land use difference min & max
-    landuse_pc_min = min(landuse_pc, na.rm = TRUE),
-    landuse_pc_max = max(landuse_pc, na.rm = TRUE),
-
-    # GHG difference min & max
-    ghg_pc_min = min(ghg_pc, na.rm = TRUE),
-    ghg_pc_max = max(ghg_pc, na.rm = TRUE)
-
+# Load tidied density simulation data, all 37 imputations----
+# Sum high and very high density proportions (-> hvh) across 3 density-resistance levels.  
+res_tidy <- readRDS(file = "../data/simulation_results_tidy.rds") %>%  
+  dplyr::filter(scenario != "CWW") %>% 
+  dplyr::mutate( 
+    scenario = factor(scenario, levels = c("BAU", "MIT")),
+    initden = factor(initden, levels = c("VD", "HD", "MD", "LD")),
+    initres = factor(initres),
+    region = factor(region, levels = c("north", "central", "east")),
+    soiltype = factor(soiltype, levels = c("heavy", "medium", "light")),
+    initdenres = factor(initdenres, # specify order of levels
+                        levels = c("VD-HR", "HD-HR", "MD-HR", 
+                                   "MD-LR", "LD-HR", "LD-LR")),
+    initcondit = factor(initcondit, levels = c(
+      "n_h_VD-HR", "n_m_VD-HR", "n_l_VD-HR", 
+      "c_h_VD-HR", "c_m_VD-HR", "c_l_VD-HR",
+      "e_h_VD-HR", "e_m_VD-HR", "e_l_VD-HR",
+      
+      "n_h_HD-HR", "n_m_HD-HR", "n_l_HD-HR",
+      "c_h_HD-HR", "c_m_HD-HR", "c_l_HD-HR",
+      "e_h_HD-HR", "e_m_HD-HR", "e_l_HD-HR",
+      
+      "n_h_MD-HR", "n_m_MD-HR", "n_l_MD-HR",
+      "c_h_MD-HR", "c_m_MD-HR", "c_l_MD-HR",
+      "e_h_MD-HR", "e_m_MD-HR", "e_l_MD-HR",
+      
+      "n_h_MD-LR", "n_m_MD-LR", "n_l_MD-LR",
+      "c_h_MD-LR", "c_m_MD-LR", "c_l_MD-LR",
+      "e_h_MD-LR", "e_m_MD-LR", "e_l_MD-LR",
+      
+      "n_h_LD-HR", "n_m_LD-HR", "n_l_LD-HR",
+      "c_h_LD-HR", "c_m_LD-HR", "c_l_LD-HR",
+      "e_h_LD-HR", "e_m_LD-HR", "e_l_LD-HR",
+      
+      "n_h_LD-LR", "n_m_LD-LR", "n_l_LD-LR",
+      "c_h_LD-LR", "c_m_LD-LR", "c_l_LD-LR",
+      "e_h_LD-LR", "e_m_LD-LR", "e_l_LD-LR")),
+    strategy = factor(strategy)
   ) %>%
   ungroup() %>%
-  
-  # 5. Calculate mean for each level of initDR
-  dplyr::group_by(initDR) %>% 
+  # collapse init den res to three levels
   dplyr::mutate(
-    
-    # gross profit rotation mean % change
-    gp_pc_mean = mean(gp_pc),
-
-    # calories rotation mean % change
-    kcal_pc_mean = mean(kcal_pc),
-    
-    # land use rotation mean % change
-    lu_pc_mean = mean(landuse_pc),
-    
-    # carbon emissions rotation mean % change
-    ghg_pc_mean = mean(ghg_pc)
-    
-  ) %>% 
-  
-  #Select just useful columns and filter out duplicates
-  #dplyr::select(initDR, contains("pc_")) %>% 
-  dplyr::select(initDR, 
-                gp_pc_mean, gp_pc_min, gp_pc_max,
-                kcal_pc_mean, kcal_pc_min, kcal_pc_max,
-                lu_pc_mean, landuse_pc_min, landuse_pc_max,
-                ghg_pc_mean, ghg_pc_min, ghg_pc_max) %>% 
-  dplyr::distinct(initDR, .keep_all = TRUE) %>% 
-  arrange(initDR)
-
-pc_change_rotn
-```
-
-This approach (in which I calculated % change from rotation means) is the same as the approach used in the previous paper. This approach also makes more sense than the one below as here, the calories produced per m2 match up better with the landuse. If you produce more calories per m2 in MIT, then you should require less land to produce 1000 kcal. This is reflected here: where the % change is +ve for calories, it's -ve for landuse. Using the first approach, this relationship isn't there.
-
-## 3.2. Save output as .csv
-```{r}
-write.csv(pc_change_rotn, "../output/summarytable_from_rotn_means.csv", row.names = FALSE)
-```
-
-
-
-# 4. Mean difference in C emissions per initDR
-This gives min and max values across regions and soil types. Used in the paper.  
-```{r}
-c_gp_yld %>%
-  
-  # 1. Calculate rotation mean gp, yield, landuse, GHG emiss
-  dplyr::group_by(scenario, region, soiltype, initDR) %>% 
-  dplyr::mutate(
-    ghg_mean = mean(c_total)
-  ) %>% 
+    initDR3 = forcats::fct_recode(initdenres, # collapse categories
+                                  "LD-LR" = "MD-LR", # new, old
+                                  "LD-HR" = "MD-HR", 
+                                  "HD-HR" = "VD-HR"),
+    initDR3 = factor(initDR3, levels = c("LD-LR", "LD-HR", "HD-HR"))
+                ) %>% 
   ungroup() %>% 
-  dplyr::select(c(scenario:initDR, ghg_mean)) %>% 
-  dplyr::distinct(scenario, region, soiltype, initDR, .keep_all = TRUE) %>% 
-  
-  # 2. Calculate difference between MIT and BAU
-  dplyr::group_by(region, soiltype, initDR) %>% 
-  dplyr::mutate(
-    ghg_diff = ghg_mean - ghg_mean[scenario == "BAU"]
-  ) %>% 
+  # sum the proportions of high and very high density black-grass:
+  rowwise() %>% 
+  dplyr::mutate(hvh = sum(c_across(h:v), na.rm = T)) %>%  # new category: h & vh
   ungroup() %>% 
-  
-  # 3. Calculate min and max values (this grouping will give range across region and soil types)
-  dplyr::filter(scenario == "MIT") %>% 
-  dplyr::group_by(initDR) %>%
-  dplyr::mutate(
-    ghg_diff_min = min(ghg_diff, na.rm = TRUE),
-    ghg_diff_max = max(ghg_diff, na.rm = TRUE)
-  ) %>%
-  ungroup() %>%
-  
-  # 5. Calculate mean for each level of initDR
-  dplyr::group_by(initDR) %>% 
-  dplyr::mutate(
-    ghg_diff_mean = mean(ghg_diff)
-  ) %>% 
-  
-  #Select just useful columns and filter out duplicates
-  dplyr::select(initDR, 
-                ghg_diff_mean, ghg_diff_min, ghg_diff_max) %>% 
-  dplyr::distinct(initDR, .keep_all = TRUE) %>% 
-  arrange(initDR)
+  dplyr::rename(mds = mds.ms)
 ```
 
+# 3. Calculate derived variables / summary stats
 
-# 5. Summarise across rotations 
+## 3.1. Management variables
+Calculate total volume of glyphosate, total vol selective herbs, and total number of herb applications, in a rotation. 
+```{r}
+strat2 <- strat %>% 
+  # calculate rotation totals
+  filter(design_element %in% c("gly_vol_yr", "selherb_vol_yr", "herb_applic_n_yr")) %>%
+  dplyr::group_by(scenario, design_element, initdenres, region, soil_type) %>% 
+  summarise(value = sum(value, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  dplyr::mutate(
+    # rename design elements
+    design_element = forcats::fct_recode(design_element, 
+                                         "gly_rot_vol" = "gly_vol_yr",
+                                         "selherb_rot_vol" = "selherb_vol_yr",
+                                         "herb_applic_n_rot" = "herb_applic_n_yr"),
+    # add 'year' and 'scaled_value' columns so can bind to original data frame
+    year = 'NA'
+    ) %>% 
+  dplyr::relocate(year, .before = value)
+
+colnames(strat)
+colnames(strat2)
+# join the two dataframes
+strat <- rbind(strat, strat2)
+
+strat <- strat %>% 
+  # Within each design element, scale values between 0 and 1:
+  group_by(design_element) %>%
+  dplyr::mutate(scaled_value = (value - min(value)) / (max(value) - min(value))) %>%
+  ungroup() 
+
+rm(strat2)
+```
+
+## 3.2. Summarise gross profit, opp costs, yield & carbon across rotations 
 For plots of the effect of initial density-resistance state *within regions and soil types* (i.e., panel plots, where panels are region and soil), range needs to show variability across years in the rotation.  
   
 ```{r, attr.source='.numberLines'}
@@ -298,8 +244,8 @@ trdoff_rot <- c_gp_yld %>%
     ),.fns = list(
       mean=~mean(.x, na.rm = TRUE),
       n=~nobs(.x)))) %>% 
-  ungroup() %>%
-  # tidy up----
+  ungroup() %>% 
+  # tidy up data frame----
   dplyr::select(-contains(c('min_n', 'max_n'))) %>% 
   dplyr::rename_at(vars(everything()), ~ sub("min_mean", "min", .x)) %>% # remove '_mean' in 'minimum' column names
   dplyr::rename_at(vars(everything()), ~ sub("max_mean", "max", .x)) %>% # remove '_mean' in 'maximum' column names
@@ -309,8 +255,8 @@ trdoff_rot <- c_gp_yld %>%
 ```
 
 
+## 3.3. Emissions sources 
 
-# 6. Emissions sources 
 Sources of GHG emissions:  
 c_fert_prod  
 c_fert_appl  
@@ -432,15 +378,351 @@ sources <- dplyr::left_join(mean_df, min_df, by = c("region", "soiltype", "initD
   dplyr::mutate(across('source_of_emissions', ~ str_replace(., 'fert_appl', 'fertiliser_application'))) %>% 
   dplyr::mutate(across('source_of_emissions', ~ str_replace(., 'fert_prod', 'fertiliser_production'))) 
   
-
-
 # Tidy up
 #rm(mean_df, min_df, max_df, c_source)
 ```
 
 
-# 7. Plots
-## 7.1. Direction of signs - what wins?
+# 4. Summary table in paper: Percentage change in gp, C, calories, landuse, for each level of initDR
+## 4.1. Calculate % change from rotation means for 3 levels of initDR
+Here, I calculate the mean gp, kcal, land use, and GHG emissions across the rotation, then calculate the difference between BAU and MIT for each rotation, then calculate the % change for the rotation. The min and max values show the range across regions and soil types.  
+```{r}
+pc_change_rotn <- c_gp_yld %>%
+  
+  # 1. Calculate rotation mean for gp, yield, landuse, GHG emiss
+  dplyr::group_by(scenario, region, soiltype, initDR) %>% 
+  dplyr::mutate(
+    # gross profit mean
+    gp_mean = mean(gp),
+    cal_mean = mean(calories),
+    lu_mean = mean(land_use),
+    ghg_mean = mean(c_total)
+  ) %>% 
+  ungroup() %>% 
+  dplyr::select(c(scenario:initDR, gp_mean:ghg_mean)) %>% 
+  dplyr::distinct(scenario, region, soiltype, initDR, .keep_all = TRUE) %>% 
+  
+  # 2. Calculate difference between MIT and BAU
+  dplyr::group_by(region, soiltype, initDR) %>% 
+  dplyr::mutate(
+    gp_diff = gp_mean - gp_mean[scenario == "BAU"],
+    cal_diff = cal_mean - cal_mean[scenario == "BAU"],
+    lu_diff = lu_mean - lu_mean[scenario == "BAU"],
+    ghg_diff = ghg_mean - ghg_mean[scenario == "BAU"]
+  ) %>% 
+  ungroup() %>% 
+  
+  # 3. Calculate percentage change
+  dplyr::group_by(region, soiltype, initDR) %>% 
+  dplyr::mutate(
+    
+    # gross profit % change
+    gp_pc = (gp_diff/gp_mean[scenario == "BAU"])*100, # opportunity cost is already the difference in gross profit 
+    
+    # calories % change
+    kcal_pc = (cal_diff/cal_mean[scenario == "BAU"])*100,    
+    
+    # land use % change
+    landuse_pc = (lu_diff/lu_mean[scenario == "BAU"])*100,  
+    
+    # carbon emissions % change
+    ghg_pc = (ghg_diff/ghg_mean[scenario == "BAU"])*100
+    
+  ) %>% 
+  ungroup() %>% 
+  
+  # 4. Calculate min and max values (this grouping will give range across region and soil types)
+  dplyr::filter(scenario == "MIT") %>% 
+  dplyr::group_by(initDR) %>%
+  dplyr::mutate(
+
+    # gross profit difference min & max
+    gp_pc_min = min(gp_pc, na.rm = TRUE),
+    gp_pc_max = max(gp_pc, na.rm = TRUE),
+
+    # calories difference min & max
+    kcal_pc_min = min(kcal_pc, na.rm = TRUE),
+    kcal_pc_max = max(kcal_pc, na.rm = TRUE),
+
+    # land use difference min & max
+    landuse_pc_min = min(landuse_pc, na.rm = TRUE),
+    landuse_pc_max = max(landuse_pc, na.rm = TRUE),
+
+    # GHG difference min & max
+    ghg_pc_min = min(ghg_pc, na.rm = TRUE),
+    ghg_pc_max = max(ghg_pc, na.rm = TRUE)
+
+  ) %>%
+  ungroup() %>%
+  
+  # 5. Calculate mean for each level of initDR
+  dplyr::group_by(initDR) %>% 
+  dplyr::mutate(
+    
+    # gross profit rotation mean % change
+    gp_pc_mean = mean(gp_pc),
+
+    # calories rotation mean % change
+    kcal_pc_mean = mean(kcal_pc),
+    
+    # land use rotation mean % change
+    lu_pc_mean = mean(landuse_pc),
+    
+    # carbon emissions rotation mean % change
+    ghg_pc_mean = mean(ghg_pc)
+    
+  ) %>% 
+  
+  #Select just useful columns and filter out duplicates
+  #dplyr::select(initDR, contains("pc_")) %>% 
+  dplyr::select(initDR, 
+                gp_pc_mean, gp_pc_min, gp_pc_max,
+                kcal_pc_mean, kcal_pc_min, kcal_pc_max,
+                lu_pc_mean, landuse_pc_min, landuse_pc_max,
+                ghg_pc_mean, ghg_pc_min, ghg_pc_max) %>% 
+  dplyr::distinct(initDR, .keep_all = TRUE) %>% 
+  arrange(initDR)
+
+pc_change_rotn
+```
+
+This approach (in which I calculated % change from rotation means) is the same as the approach used in the previous paper. This approach also makes more sense than the one below as here, the calories produced per m2 match up better with the landuse. If you produce more calories per m2 in MIT, then you should require less land to produce 1000 kcal. This is reflected here: where the % change is +ve for calories, it's -ve for landuse. Using the first approach, this relationship isn't there.
+
+## 4.2. Save output as .csv
+```{r}
+write.csv(pc_change_rotn, "../output/summarytable_from_rotn_means.csv", row.names = FALSE)
+```
+
+
+
+# 5. Mean difference in C emissions per initDR
+This gives min and max values across regions and soil types. Used in the paper.  
+```{r}
+c_gp_yld %>%
+  
+  # 1. Calculate rotation mean gp, yield, landuse, GHG emiss
+  dplyr::group_by(scenario, region, soiltype, initDR) %>% 
+  dplyr::mutate(
+    ghg_mean = mean(c_total)
+  ) %>% 
+  ungroup() %>% 
+  dplyr::select(c(scenario:initDR, ghg_mean)) %>% 
+  dplyr::distinct(scenario, region, soiltype, initDR, .keep_all = TRUE) %>% 
+  
+  # 2. Calculate difference between MIT and BAU
+  dplyr::group_by(region, soiltype, initDR) %>% 
+  dplyr::mutate(
+    ghg_diff = ghg_mean - ghg_mean[scenario == "BAU"]
+  ) %>% 
+  ungroup() %>% 
+  
+  # 3. Calculate min and max values (this grouping will give range across region and soil types)
+  dplyr::filter(scenario == "MIT") %>% 
+  dplyr::group_by(initDR) %>%
+  dplyr::mutate(
+    ghg_diff_min = min(ghg_diff, na.rm = TRUE),
+    ghg_diff_max = max(ghg_diff, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  
+  # 5. Calculate mean for each level of initDR
+  dplyr::group_by(initDR) %>% 
+  dplyr::mutate(
+    ghg_diff_mean = mean(ghg_diff)
+  ) %>% 
+  
+  #Select just useful columns and filter out duplicates
+  dplyr::select(initDR, 
+                ghg_diff_mean, ghg_diff_min, ghg_diff_max) %>% 
+  dplyr::distinct(initDR, .keep_all = TRUE) %>% 
+  arrange(initDR)
+```
+
+
+
+# 6. Plots
+## 6.1. Diversification - histogram
+
+Plot scaled rotation values of crop diversity, stale seedbeds, herbicide volumes:
+```{r}
+p_mgmt <- strat %>%
+  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
+  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
+  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
+  dplyr:: group_by(ID) %>% 
+  dplyr::filter(design_element %in% c("spring_crops_tot_n_rot", 
+                                      "diff_crops_tot_n_rot", 
+                                      "ssb_tot_n_rot", 
+                                      "gly_rot_vol", 
+                                      "selherb_rot_vol" )) %>% #"aut_gly_n_yr", 
+  dplyr::mutate(design_element = factor(design_element, 
+                                        levels=c("spring_crops_tot_n_rot", 
+                                                 "diff_crops_tot_n_rot", 
+                                                 "ssb_tot_n_rot",  
+                                                 "gly_rot_vol", 
+                                                 "selherb_rot_vol"))) %>%
+  ggplot(aes(fill=design_element, y=scaled_value, x=initdenres)) +
+    geom_boxplot(position=position_dodge2(preserve = "total"), outlier.colour="darkgrey", alpha=0.5) + #, outlier.colour="transparent",
+    geom_point(color="lightgrey", size=1.5, width=0.1, position=position_jitterdodge(0.3)) + #, alpha=0.1
+    #scale_fill_manual(values=c("#332288", "#44AA99", "#88CCEE", "#DDCC77", "#CC6677"),  
+    scale_fill_manual(values=c("#44AA99", "#88CCEE", "#DDCC77", "#CC6677", "#AA4499"), #c("MIT" = "#40B0A6", "BAU" = "#E1BE6A"))
+                      labels = c("Number of spring crops",
+                                  "Number of different crops",
+                                  "Number of stale seed beds",
+                                  "Glyphosate volume",
+                                  "Selective herbicide volume")) +
+    # scale_fill_viridis(discrete=T, name="",
+    #                    labels = c("Number of spring crops",
+    #                               "Number of different crops",
+    #                               "Number of stale seed beds",
+    #                               "Glyphosate volume",
+    #                               "Selective herbicide volume")
+    #                    ) +
+    guides(color = FALSE) + # suppresses the colour legend
+    theme_classic() +
+    theme(
+        axis.title=element_text(size=24),
+        axis.text.x=element_text(size=rel(2.2)), 
+        axis.text.y=element_text(size=rel(2.2)),
+        #legend.title=element_text(size=22),
+        legend.text=element_text(size=20),
+        legend.title=element_blank()
+        ) + 
+    xlab("Scneario and initial density-resistance state") +
+    ylab("Scaled value") +
+    scale_x_discrete(labels=c("LD-LR" = "MIT\nLD-LR", 
+                              "LD-HR" = "MIT\nLD-HR",
+                              "HD-HR" = "MIT\nHD-HR")) +
+    # These lines are thick enough and wide enough so none of the black line behind is visible.
+    geom_segment(aes(x = 0.632, y = 0, xend = 0.77, yend = 0), colour = "#44AA99", size = 1.05) + # #332288
+    geom_segment(aes(x = 0.783, y = 0, xend = 0.9175, yend = 0), colour = "#88CCEE", size = 1.05) + # #44AA99
+    geom_segment(aes(x = 0.9325, y = 0, xend = 1.068, yend = 0), colour = "#DDCC77", size = 1.05) + # #88CCEE
+    geom_segment(aes(x = 1.082, y = 0.0532, xend = 1.2168, yend = 0.0532), colour = "#CC6677", size = 1.05) + # #DDCC77
+    geom_segment(aes(x = 1.233, y = 0.85865, xend = 1.3675, yend = 0.85865), colour = "#AA4499", size = 1.05)# #CC6677
+
+p_mgmt
+
+    # annotate("text", x=0.7, y=0.13, label="Spring crops", size = 3.2, angle=90, colour = "red") +
+    # annotate("text", x=0.85, y=0.145, label="Different crops", size = 3.2, angle=90) +
+    # annotate("text", x=1, y=0.155, label="Stale seed beds", size = 3.2, angle=90) +
+    # annotate("text", x=1.15, y=0.23, label="Glyphosate volume", size = 3.2, angle=90) +    
+    # annotate("text", x=1.29, y=0.66, label="Selective herb. volume", size = 3.2, angle=90) +
+    # These lines all fit onto the existing black lines so that you can see a black border round the coloured line:
+    # geom_segment(aes(x = 0.634, y = 0, xend = 0.7655, yend = 0), colour = "#332288") +
+    # geom_segment(aes(x = 0.785, y = 0, xend = 0.916, yend = 0), colour = "#44AA99") +
+    # geom_segment(aes(x = 0.935, y = 0, xend = 1.066, yend = 0), colour = "#88CCEE") +
+    # geom_segment(aes(x = 1.084, y = 0.0534, xend = 1.2165, yend = 0.0532), colour = "#DDCC77") +
+    # geom_segment(aes(x = 1.23465, y = 0.85865, xend = 1.3655, yend = 0.85865), colour = "#CC6677") 
+```
+
+
+Save plot
+```{r}
+png("../figures/management_histogram.png",
+    height = 15, width = 18, units = "in", res = 300)
+print(p_mgmt)
+dev.off()
+```
+
+
+
+
+## 6.2. Impact on weed density - violin plot
+
+```{r}
+# Plot LD-LR----
+p_LDLR <- ggplot(res_tidy %>% filter(initDR3 == "LD-LR", year == 6), 
+             aes(x = factor(scenario), y = hvh, fill = scenario)) +  
+  geom_violin(alpha = 0.5) +  # Semi-transparent violin plots
+  geom_jitter(width = 0.1, height = 0, color = "lightgrey", size = 0.5, alpha = 0.5) +  # Tiny, light grey, transparent points
+  labs(x = "Scenario", y = "Proportion of field with high or very \nhigh density black-grass at year 6") +  # Custom axis titles
+  scale_fill_manual(values = c("MIT" = "#44AA99", "BAU" = "#DDCC77")) +  # Custom colors for MIT and BAU (previously used: #40B0A6 and #E1BE6A)
+  theme_minimal() +  # Base minimal theme for a clean look
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),  # White background
+    panel.grid = element_blank(),  # Remove gridlines
+    axis.line = element_line(color = "black"),  # Black axis lines for both x and y
+    axis.ticks = element_line(color = "black"),  # Black axis ticks
+    axis.title=element_text(size=24),
+    axis.text.x=element_text(size=rel(2.2)),
+    axis.text.y=element_text(size=rel(2.2)),
+    plot.title = element_text(size = 22, face = "bold"),
+    legend.position = "none"  # Remove legend
+  ) + 
+  ggtitle("LD-LR") 
+
+
+# Plot LD-HR----
+p_LDHR <- ggplot(res_tidy %>% filter(initDR3 == "LD-HR", year == 6), 
+             aes(x = factor(scenario), y = hvh, fill = scenario)) +  
+  geom_violin(alpha = 0.5) +  # Semi-transparent violin plots
+  geom_jitter(width = 0.1, height = 0, color = "lightgrey", size = 0.5, alpha = 0.5) +  # Tiny, light grey, transparent points
+  labs(x = "Scenario", y = "Proportion of field with high or \nvery high density black-grass at year 6") +  # Custom axis titles
+  scale_fill_manual(values = c("MIT" = "#44AA99", "BAU" = "#DDCC77")) +  # Custom colors for MIT and BAU
+  theme_minimal() +  # Base minimal theme for a clean look
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),  # White background
+    panel.grid = element_blank(),  # Remove gridlines
+    axis.line = element_line(color = "black"),  # Black axis lines for both x and y
+    axis.ticks = element_line(color = "black"),  # Black axis ticks
+    axis.title=element_text(size=24),
+    axis.title.y = element_blank(),
+    axis.text.x=element_text(size=rel(2.2)),
+    axis.text.y=element_text(size=rel(2.2)),
+    plot.title = element_text(size = 22, face = "bold"),
+    legend.position = "none"  # Remove legend
+  ) + 
+  ggtitle("LD-HR") 
+
+# Plot HD-HR ----
+p_HDHR <- ggplot(res_tidy %>% filter(initDR3 == "HD-HR", year == 6), 
+             aes(x = factor(scenario), y = hvh, fill = scenario)) +  
+  geom_violin(alpha = 0.5) +  # Semi-transparent violin plots
+  geom_jitter(width = 0.1, height = 0, color = "lightgrey", size = 0.5, alpha = 0.5) +  # Tiny, light grey, transparent points
+  labs(x = "Scenario", y = "Proportion of field with high or \nvery high density black-grass at year 6") +  # Custom axis titles
+  scale_fill_manual(values = c("MIT" = "#44AA99", "BAU" = "#DDCC77")) +  # Custom colors for MIT and BAU
+  theme_minimal() +  # Base minimal theme for a clean look
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),  # White background
+    panel.grid = element_blank(),  # Remove gridlines
+    axis.line = element_line(color = "black"),  # Black axis lines for both x and y
+    axis.ticks = element_line(color = "black"),  # Black axis ticks
+    axis.title=element_text(size=24),
+    axis.title.y = element_blank(),
+    axis.text.x=element_text(size=rel(2.2)),
+    axis.text.y=element_text(size=rel(2.2)),
+    plot.title = element_text(size = 22, face = "bold"),
+    legend.position = "none"  # Remove legend
+  ) + 
+  ggtitle("HD-HR") 
+```
+
+
+Make panel plot.
+```{r}
+bg_density_yr6 <- (p_LDLR + p_LDHR + p_HDHR) + plot_layout(axis_titles = "collect") 
+bg_density_yr6
+```
+
+
+Save plot.
+```{r}
+png("../figures/bg_density_yr6.png",
+    height = 6, width = 18, units = "in", res = 300)
+print(bg_density_yr6)
+dev.off()
+```
+
+
+How many points are in each violin plot?
+```{r}
+nrow(res_tidy %>% filter(scenario == "MIT", initDR3 == "HD-HR", year == 6))
+```
+
+
+## 6.3. Profit, calories, GHG emissions - panel plots
+
+### 6.3.1. Direction of signs - what wins?
 Difference in *gross profit: +ve value wins*  
 Difference in gross profit (opp cost) = money lost by switching = difference in gross profit MIT-BAU.  
 So if  
@@ -473,26 +755,21 @@ Could switch the sign on opportunity costs (would then be BAU-MIT) so that for b
 
   
   
-## 7.2. Figure 1 - All outcomes panel plots
-### 7.2.1. Specify panel labels
-  
-```{r, specify-panel-labels, echo=FALSE}
+### 6.3.2. Create panel plots
+
+```{r, echo=FALSE}
+# Specify panel labels
 region.labs <- c("Northern England", "Central England", "Eastern England") # new
 names(region.labs) <- c("north", "central", "east") # original
 
 soiltype.labs <- c("Heavy soil", "Medium soil", "Light soil") # new
 names(soiltype.labs) <- c("heavy", "medium", "light") # original
-```
-  
-  
 
-### 7.2.5. Combined plots
-
-```{r}
-# opp costs ----
+# Plot
+## opp costs ----
 a_oc_1col <- ggplot(trdoff_rot %>% dplyr::filter(scenario == "MIT"), 
                aes(initDR, oc_mean, colour = oc_mean < 0)) + 
-  scale_colour_manual(values = c("#009E73", "#D55E00"),
+  scale_colour_manual(values = c("#44AA99", "#DDCC77"),
                       labels = c("MIT wins", "MIT loses")) +
   facet_grid(soiltype ~ region,
              labeller = labeller(soiltype = soiltype.labs, region = region.labs),
@@ -520,10 +797,10 @@ a_oc_1col <- ggplot(trdoff_rot %>% dplyr::filter(scenario == "MIT"),
         tag.text = element_text(size=22)
         ) 
 
-# yield ----
+## yield ----
 b_cal_1col <- ggplot(trdoff_rot %>% dplyr::filter(scenario == "MIT"), 
                aes(initDR, calories_diff_mean, colour = calories_diff_mean < 0)) + 
-  scale_colour_manual(values = c("#009E73", "#D55E00"),
+  scale_colour_manual(values = c("#44AA99", "#DDCC77"),
                       labels = c("MIT wins", "MIT loses")) +
   facet_grid(soiltype ~ region,
              labeller = labeller(soiltype = soiltype.labs, region = region.labs),
@@ -550,10 +827,10 @@ b_cal_1col <- ggplot(trdoff_rot %>% dplyr::filter(scenario == "MIT"),
         legend.position = "none"
         )
 
-# GHG emissions ----
+## GHG emissions ----
 c_ghg_1col <- ggplot(trdoff_rot %>% dplyr::filter(scenario == "MIT"), 
                aes(initDR, c_emiss_diff_mean, colour = c_emiss_diff_mean > 0)) + 
-    scale_colour_manual(values = c("#009E73", "#D55E00"),
+    scale_colour_manual(values = c("#44AA99", "#DDCC77"),
                       labels = c("MIT wins", "MIT loses")) +
   facet_grid(soiltype ~ region,
              labeller = labeller(soiltype = soiltype.labs, 
@@ -579,21 +856,19 @@ c_ghg_1col <- ggplot(trdoff_rot %>% dplyr::filter(scenario == "MIT"),
         legend.position = "bottom"
         )
 
-# combine ----
+# Combine plots ----
 facetpanel_1col <- a_oc_1col + b_cal_1col + c_ghg_1col + plot_layout(ncol = 1) +
   plot_annotation(tag_levels = 'a', tag_prefix = '(',  tag_suffix = ')') & 
   theme(plot.tag = element_text(size = 22, face="bold"))
 ```
 
 
-
-
-
+Save plot.
 ```{r, echo=FALSE, eval = FALSE}
-# png("../figures/plot_all_outcomes_1col.png",
-#     height = 30, width = 10, units = "in", res = 300)
-# print(facetpanel_1col)
-# dev.off()
+png("../figures/plot_all_outcomes_1col.png",
+    height = 30, width = 10, units = "in", res = 300)
+print(facetpanel_1col)
+dev.off()
 
 pdf("../figures/plot_all_outcomes_1col.pdf", height = 30, width = 10)
 print(facetpanel_1col)
@@ -601,7 +876,9 @@ dev.off()
 ```
 
 
-## 7.3. Fig S?? 
+
+
+## 7.3. Supplementary Fig S?? 
 
 ```{r}
 
@@ -826,510 +1103,6 @@ pdf("../figures/emissions_sources_1col.pdf", height = 30, width = 10)
 print(sources_1col)
 dev.off()
 ```
-
-## 7.4. Density data violin plot
-
-### 7.4.1. Using summarised data
-```{r}
-density_3dr <- readRDS("../data/density_data_summarised_3dr.rds") %>% 
-  dplyr::filter(scenario != "CWW")
-
-p <- ggplot(density_3dr %>% dplyr::filter(initDR3 == "LD-LR", year == 6), aes(factor(scenario), hvh_mean, fill = scenario))
-p + geom_violin() + 
-  geom_jitter(height = 0, width = 0.1)
-
-```
-
-### 7.4.2. Using raw simulation data
-Re-do it with raw simulations. Sum high and very high density proportions (-> hvh) across 3 density-resistance levels.  
-```{r}
-# tidied simulated density data, all 37 imputations
-res_tidy <- readRDS(file = "../data/simulation_results_tidy.rds") %>%  
-  dplyr::filter(scenario != "CWW") %>% 
-  dplyr::mutate( 
-    scenario = factor(scenario, levels = c("BAU", "MIT")),
-    initden = factor(initden, levels = c("VD", "HD", "MD", "LD")),
-    initres = factor(initres),
-    region = factor(region, levels = c("north", "central", "east")),
-    soiltype = factor(soiltype, levels = c("heavy", "medium", "light")),
-    initdenres = factor(initdenres, # specify order of levels
-                        levels = c("VD-HR", "HD-HR", "MD-HR", 
-                                   "MD-LR", "LD-HR", "LD-LR")),
-    initcondit = factor(initcondit, levels = c(
-      "n_h_VD-HR", "n_m_VD-HR", "n_l_VD-HR", 
-      "c_h_VD-HR", "c_m_VD-HR", "c_l_VD-HR",
-      "e_h_VD-HR", "e_m_VD-HR", "e_l_VD-HR",
-      
-      "n_h_HD-HR", "n_m_HD-HR", "n_l_HD-HR",
-      "c_h_HD-HR", "c_m_HD-HR", "c_l_HD-HR",
-      "e_h_HD-HR", "e_m_HD-HR", "e_l_HD-HR",
-      
-      "n_h_MD-HR", "n_m_MD-HR", "n_l_MD-HR",
-      "c_h_MD-HR", "c_m_MD-HR", "c_l_MD-HR",
-      "e_h_MD-HR", "e_m_MD-HR", "e_l_MD-HR",
-      
-      "n_h_MD-LR", "n_m_MD-LR", "n_l_MD-LR",
-      "c_h_MD-LR", "c_m_MD-LR", "c_l_MD-LR",
-      "e_h_MD-LR", "e_m_MD-LR", "e_l_MD-LR",
-      
-      "n_h_LD-HR", "n_m_LD-HR", "n_l_LD-HR",
-      "c_h_LD-HR", "c_m_LD-HR", "c_l_LD-HR",
-      "e_h_LD-HR", "e_m_LD-HR", "e_l_LD-HR",
-      
-      "n_h_LD-LR", "n_m_LD-LR", "n_l_LD-LR",
-      "c_h_LD-LR", "c_m_LD-LR", "c_l_LD-LR",
-      "e_h_LD-LR", "e_m_LD-LR", "e_l_LD-LR")),
-    strategy = factor(strategy)
-  ) %>%
-  ungroup() %>%
-  # collapse init den res to three levels
-  dplyr::mutate(
-    initDR3 = forcats::fct_recode(initdenres, # collapse categories
-                                  "LD-LR" = "MD-LR", # new, old
-                                  "LD-HR" = "MD-HR", 
-                                  "HD-HR" = "VD-HR"),
-    initDR3 = factor(initDR3, levels = c("LD-LR", "LD-HR", "HD-HR"))
-                ) %>% 
-  ungroup() %>% 
-  # sum the proportions of high and very high density black-grass:
-  rowwise() %>% 
-  dplyr::mutate(hvh = sum(c_across(h:v), na.rm = T)) %>%  # new category: h & vh
-  ungroup() %>% 
-  dplyr::rename(mds = mds.ms)
-```
-
-
-Plot LD-LR
-```{r}
-p_LDLR <- ggplot(res_tidy %>% filter(initDR3 == "LD-LR", year == 6), 
-             aes(x = factor(scenario), y = hvh, fill = scenario)) +  
-  geom_violin(alpha = 0.5) +  # Semi-transparent violin plots
-  geom_jitter(width = 0.1, height = 0, color = "lightgrey", size = 0.5, alpha = 0.5) +  # Tiny, light grey, transparent points
-  labs(x = "Scenario", y = "Proportion of field with high or very \nhigh density black-grass at year 6") +  # Custom axis titles
-  scale_fill_manual(values = c("MIT" = "#40B0A6", "BAU" = "#E1BE6A")) +  # Custom colors for MIT and BAU
-  theme_minimal() +  # Base minimal theme for a clean look
-  theme(
-    panel.background = element_rect(fill = "white", color = NA),  # White background
-    panel.grid = element_blank(),  # Remove gridlines
-    axis.line = element_line(color = "black"),  # Black axis lines for both x and y
-    axis.ticks = element_line(color = "black"),  # Black axis ticks
-    axis.title=element_text(size=24),
-    axis.text.x=element_text(size=rel(2.2)),
-    axis.text.y=element_text(size=rel(2.2)),
-    plot.title = element_text(size = 22, face = "bold"),
-    #legend.title=element_text(size=22),
-    #legend.text=element_text(size=20),
-    legend.position = "none"  # Remove legend
-  ) + 
-  ggtitle("LD-LR") 
-
-p_LDLR
-```
-
-
-Plot LD-HR
-```{r}
-p_LDHR <- ggplot(res_tidy %>% filter(initDR3 == "LD-HR", year == 6), 
-             aes(x = factor(scenario), y = hvh, fill = scenario)) +  
-  geom_violin(alpha = 0.5) +  # Semi-transparent violin plots
-  geom_jitter(width = 0.1, height = 0, color = "lightgrey", size = 0.5, alpha = 0.5) +  # Tiny, light grey, transparent points
-  labs(x = "Scenario", y = "Proportion of field with high or \nvery high density black-grass at year 6") +  # Custom axis titles
-  scale_fill_manual(values = c("MIT" = "#40B0A6", "BAU" = "#E1BE6A")) +  # Custom colors for MIT and BAU
-  theme_minimal() +  # Base minimal theme for a clean look
-  theme(
-    panel.background = element_rect(fill = "white", color = NA),  # White background
-    panel.grid = element_blank(),  # Remove gridlines
-    axis.line = element_line(color = "black"),  # Black axis lines for both x and y
-    axis.ticks = element_line(color = "black"),  # Black axis ticks
-    axis.title=element_text(size=24),
-    axis.title.y = element_blank(),
-    axis.text.x=element_text(size=rel(2.2)),
-    axis.text.y=element_text(size=rel(2.2)),
-    plot.title = element_text(size = 22, face = "bold"),
-    legend.position = "none"  # Remove legend
-  ) + 
-  ggtitle("LD-HR") 
-  
-p_LDHR
-```
-
-
-Plot HD-HR
-```{r}
-p_HDHR <- ggplot(res_tidy %>% filter(initDR3 == "HD-HR", year == 6), 
-             aes(x = factor(scenario), y = hvh, fill = scenario)) +  
-  geom_violin(alpha = 0.5) +  # Semi-transparent violin plots
-  geom_jitter(width = 0.1, height = 0, color = "lightgrey", size = 0.5, alpha = 0.5) +  # Tiny, light grey, transparent points
-  labs(x = "Scenario", y = "Proportion of field with high or \nvery high density black-grass at year 6") +  # Custom axis titles
-  scale_fill_manual(values = c("MIT" = "#40B0A6", "BAU" = "#E1BE6A")) +  # Custom colors for MIT and BAU
-  theme_minimal() +  # Base minimal theme for a clean look
-  theme(
-    panel.background = element_rect(fill = "white", color = NA),  # White background
-    panel.grid = element_blank(),  # Remove gridlines
-    axis.line = element_line(color = "black"),  # Black axis lines for both x and y
-    axis.ticks = element_line(color = "black"),  # Black axis ticks
-    axis.title=element_text(size=24),
-    axis.title.y = element_blank(),
-    axis.text.x=element_text(size=rel(2.2)),
-    axis.text.y=element_text(size=rel(2.2)),
-    plot.title = element_text(size = 22, face = "bold"),
-    legend.position = "none"  # Remove legend
-  ) + 
-  ggtitle("HD-HR") 
-  
-p_HDHR
-```
-
-
-Create panel plot.
-```{r}
-bg_density_yr6 <- (p_LDLR + p_LDHR + p_HDHR) + plot_layout(axis_titles = "collect") 
-bg_density_yr6
-```
-
-
-
-
-Save panel plot.
-```{r}
-png("../figures/bg_density_yr6.png",
-    height = 6, width = 18, units = "in", res = 300)
-print(bg_density_yr6)
-dev.off()
-```
-
-
-How many points are in each violin plot?
-```{r}
-nrow(res_tidy %>% filter(scenario == "MIT", initDR3 == "HD-HR", year == 6))
-```
-
-```{r}
-n_distinct(res_tidy$initcondit) # i.e., e_l_HD-HR
-```
-
-```{r}
-unique(res_tidy$initcondit)
-```
-
-
-```{r}
-unique(res_tidy$initdenres) # i.e., LD-HR or VD-HR etc.
-```
-
-
-
-## 7.5. Diversification plots
-```{r}
-# load data
-strat <- read_xlsx("../data/strategy design summary.xlsx",2) %>% 
-  dplyr::mutate(
-    scenario = as.factor(scenario),
-    design_element = as.factor(design_element),
-    initdenres = as.factor(initdenres),
-    region = as.factor(region),
-    soil_type = as.factor(soil_type)
-  ) 
- 
-glimpse(strat)
-```
-
-
-```{r}
-unique(strat$design_element)
-```
-
-Calculate total volume of glyphosate, total vol selective herbs, and total number of herb applications, in a rotation. 
-```{r}
-strat2 <- strat %>% 
-  # calculate rotation totals
-  filter(design_element %in% c("gly_vol_yr", "selherb_vol_yr", "herb_applic_n_yr")) %>%
-  dplyr::group_by(scenario, design_element, initdenres, region, soil_type) %>% 
-  summarise(value = sum(value, na.rm = TRUE)) %>% 
-  ungroup() %>% 
-  dplyr::mutate(
-    # rename design elements
-    design_element = forcats::fct_recode(design_element, 
-                                         "gly_rot_vol" = "gly_vol_yr",
-                                         "selherb_rot_vol" = "selherb_vol_yr",
-                                         "herb_applic_n_rot" = "herb_applic_n_yr"),
-    # add 'year' and 'scaled_value' columns so can bind to original data frame
-    year = 'NA'
-    ) %>% 
-  dplyr::relocate(year, .before = value)
-
-colnames(strat)
-colnames(strat2)
-# join the two dataframes
-strat <- rbind(strat, strat2)
-
-strat <- strat %>% 
-  # Within each design element, scale values between 0 and 1:
-  group_by(design_element) %>%
-  dplyr::mutate(scaled_value = (value - min(value)) / (max(value) - min(value))) %>%
-  ungroup() 
-
-rm(strat2)
-
-glimpse(strat)
-```
-
-
-Plot some of the yearly design elements.
-```{r}
-strat %>%
-  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
-  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
-  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
-  dplyr:: group_by(ID) %>% 
-  dplyr::filter(design_element %in% c("tillage_depth_yr", "herb_applic_n_yr", "selherb_vol_yr", "gly_vol_yr" )) %>% #"aut_gly_n_yr", 
-  dplyr::mutate(design_element = factor(design_element, levels=c("tillage_depth_yr", "herb_applic_n_yr", "selherb_vol_yr",  "gly_vol_yr"))) %>% #"aut_gly_n_yr",
-  ggplot(aes(fill=design_element, y=scaled_value, x=initdenres)) +
-    #geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
-    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + #, outlier.colour="transparent"
-    scale_fill_viridis(discrete=T, name="",
-                       labels = c("Tillage depth", 
-                                  "Herbicide application frequency", 
-                                  "Selective herbicide volume", 
-                                  #"Autumn glyphosate application frequency",  
-                                  "Glyphosate volume")
-                       ) +
-    #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
-    #theme_ipsum()  +
-    theme_classic() +
-    xlab("") +
-    ylab("Scaled value") #+
-    #ylim(0,1)
-```
-
-
-```{r}
-unique(strat$design_element)
-```
-
-Plot scaled values of a combination of things:
-```{r}
-strat %>%
-  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
-  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
-  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
-  dplyr:: group_by(ID) %>% 
-  dplyr::filter(design_element %in% c("spring_crops_tot_n_rot", "diff_crops_tot_n_rot", "ssb_tot_n_rot", "gly_rot_vol", "selherb_rot_vol" )) %>% #"aut_gly_n_yr", 
-  dplyr::mutate(design_element = factor(design_element, levels=c("spring_crops_tot_n_rot", "diff_crops_tot_n_rot", "ssb_tot_n_rot",  "gly_rot_vol", "selherb_rot_vol"))) %>%
-  ggplot(aes(fill=design_element, y=scaled_value, x=initdenres)) +
-    #geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
-    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + #, outlier.colour="transparent"
-    # scale_fill_manual(values=c("#332288", "#44AA99", "#88CCEE", "#DDCC77", "#CC6677"),
-    #                   labels = c("Number of spring crops", 
-    #                               "Number of different crops", 
-    #                               "Number of stale seed beds",
-    #                               "Glyphosate volume",
-    #                               "Selective herbicide volume")) +
-    scale_fill_viridis(discrete=T, name="",
-                       labels = c("Number of spring crops",
-                                  "Number of different crops",
-                                  "Number of stale seed beds",
-                                  "Glyphosate volume",
-                                  "Selective herbicide volume")
-                       ) +
-    #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
-    #theme_ipsum()  +
-    theme_classic() +
-    xlab("") +
-    ylab("Scaled value") +
-    #ylim(0,1)
-    scale_x_discrete(labels=c("LD-LR" = "MIT\nLD-LR", "LD-HR" = "MIT\nLD-HR",
-                              "HD-HR" = "MIT\nHD-HR")) +
-    # annotate("text", x=0.7, y=0.13, label="Spring crops", size = 3.2, angle=90, colour = "red") +
-    # annotate("text", x=0.85, y=0.145, label="Different crops", size = 3.2, angle=90) +
-    # annotate("text", x=1, y=0.155, label="Stale seed beds", size = 3.2, angle=90) +
-    # annotate("text", x=1.15, y=0.23, label="Glyphosate volume", size = 3.2, angle=90) +    
-    # annotate("text", x=1.29, y=0.66, label="Selective herb. volume", size = 3.2, angle=90) +
-  
-    geom_segment(aes(x = 0.635, y = 0, xend = 0.76, yend = 0, colour = "#332288"))
-
-```
-
-
-
-Annual volumes of herbicide applied.
-```{r}
-strat %>%
-  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
-  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
-  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
-  dplyr:: group_by(ID) %>% 
-  dplyr::filter(design_element %in% c("selherb_vol_yr", "gly_vol_yr" )) %>% 
-  dplyr::mutate(design_element = factor(design_element, levels=c("selherb_vol_yr",  "gly_vol_yr"))) %>% 
-  ggplot(aes(fill=design_element, y=value, x=initdenres)) +
-    #geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
-    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + 
-    scale_fill_manual(values=c("#332288", "#117733"),
-                      labels = c("Selective herbicide", 
-                                  "Glyphosate")) +
-    # scale_fill_manual(values=c("#999999", "#E69F00"),
-    #                   labels = c("Selective herbicide", 
-    #                               "Glyphosate")) + #, "#56B4E9"
-    # scale_fill_viridis(discrete=T, 
-    #                    #option = "D", #(this is the)
-    #                    name="",
-    #                    labels = c("Selective herbicide", 
-    #                               "Glyphosate")
-    #                    ) +
-    #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
-    #theme_ipsum()  +
-    theme_classic() +
-    theme(legend.title=element_blank()) +
-    xlab("") +
-    ylab(expression("Volume "*("l "*ha^{-1}*yr^{-1})))
-    #ylab(bquote('Volume'~(l^-1)))
-    #ylab("Volume (l/ ha/ yr)") #+
-    #ylim(0,1)
-```
-
-This plot is good as it shows, compared to BAU, sometimes reduced selective herbicide volume but increased glyphosate volume.
-
-
-Rotation herbicide volumes.
-```{r}
-strat %>%
-  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
-  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
-  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
-  dplyr:: group_by(ID) %>% 
-  dplyr::filter(design_element %in% c("selherb_rot_vol", "gly_rot_vol" )) %>% 
-  dplyr::mutate(design_element = factor(design_element, levels=c("selherb_rot_vol",  "gly_rot_vol"))) %>% 
-  ggplot(aes(fill=design_element, y=value, x=initdenres)) +
-    #geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
-    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + 
-    scale_fill_manual(values=c("#332288", "#117733"),
-                      labels = c("Selective herbicide", 
-                                  "Glyphosate")) +
-    theme_classic() +
-    theme(legend.title=element_blank()) +
-    xlab("") +
-    ylab(expression("Volume "*("l "*ha^{-1})))
-```
-
-
-
-Plot rotation active ingredients and stale seed beds.
-```{r}
-strat %>%
-  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
-  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
-  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
-  dplyr:: group_by(ID) %>% 
-  dplyr::filter(design_element %in% c("herb_applic_n_rot", "diff_act_tot_n_rot", "ssb_tot_n_rot")) %>%
-  dplyr::mutate(design_element = factor(design_element, levels=c("herb_applic_n_rot", "diff_act_tot_n_rot", "ssb_tot_n_rot"))) %>% 
-  ggplot(aes(fill=design_element, y=value, x=initdenres)) +
-    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + #, outlier.colour="transparent"
-    scale_fill_manual(values=c("#CC6677", "#DDCC77", "#AA4499"), #"#AA4499", "#443F41"
-                      labels = c(
-                        "Herbicide applications",
-                        "Active ingredients",
-                        "Stale seedbed")
-                      ) +
-    # scale_fill_viridis(discrete=T, name="",
-    #                    labels = c("Number of different actives", 
-    #                               "Number of different crops", 
-    #                               "Number of spring crops", 
-    #                               "Number of stale seed beds"#,  
-    #                               #"Glyphosate total volume"
-    #                               )
-    #                    ) +
-    geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
-    #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
-    #theme_ipsum()  +
-    theme_classic() +
-    theme(legend.title=element_blank()) +
-    xlab("") +
-    ylab("Count (total number in rotation)") #+
-    #ylim(0,1)
-```
-
-This doesn't really work. Which is the most interesting?
-
-Plot rotation crop diversity.  
-Number of spring crops  
-Number of different crops  
-```{r}
-strat %>%
-  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
-  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
-  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
-  dplyr:: group_by(ID) %>% 
-  dplyr::filter(design_element %in% c("diff_crops_tot_n_rot", "spring_crops_tot_n_rot")) %>% 
-  dplyr::mutate(design_element = factor(design_element, levels=c("diff_crops_tot_n_rot", "spring_crops_tot_n_rot"))) %>% 
-  ggplot(aes(fill=design_element, y=value, x=initdenres)) +
-    
-    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + #, outlier.colour="transparent"
-    scale_fill_manual(values=c("#88CCEE", "#44AA99"),
-                       labels = c("Different crops",
-                                  "Spring crops")
-                       ) +
-    # scale_fill_viridis(discrete=T, name="",
-    #                    labels = c("n spring crops", 
-    #                               "n different crops")
-    #                    ) +
-    #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
-    #theme_ipsum()  +
-    geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
-  
-    theme_classic() +
-    theme(legend.title=element_blank()) +
-    xlab("") +
-    ylab("Count (total number in rotation)") #+
-    #ylim(0,1)
-```
-
-
-
-
-Plot frequencies.  
-Number of herbicide applications per year.
-Number of actives per year.  
-Number autumn glyphosate applications per year.
-```{r}
-strat %>%
-  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
-  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
-  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
-  dplyr:: group_by(ID) %>% 
-  dplyr::filter(design_element %in% c("herb_applic_n_yr", "actives_n_yr")) %>% 
-  dplyr::mutate(design_element = factor(design_element, levels=c("herb_applic_n_yr", "actives_n_yr"))) %>% 
-  ggplot(aes(fill=design_element, y=value, x=initdenres)) +
-    #geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
-    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + #, outlier.colour="transparent"
-    scale_fill_manual(values=c("#DDCC77", "#CC6677"),
-                       labels = c("Herbicide applications",
-                                  "Active ingredients")
-                       ) +
-    # scale_fill_viridis(discrete=T, name="",
-    #                    labels = c("Herbicide applications", 
-    #                               "Active ingredients", 
-    #                               "Autumn glyphosate",
-    #                               "Stale seedbeds")
-    #                    ) +
-    #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
-    #theme_ipsum()  +
-    theme_classic() +
-    theme(legend.title=element_blank()) +
-    xlab("") +
-    ylab("Application frequency (number / year)") +
-    scale_y_continuous(breaks=seq(0,8,2))
-    #ylim(0,8)
-```
-
-
-This one maybe not very useful. I think the number of herbicide applications rose because there were more stale seedbeds. Might be better just to show that.  
-Active ingredients per year doesn't change much overall (mean goes down with increasing BG severity), but earlier plot shows more actives used across a rotation. So farmers use slightly fewer actives per crop but more different crops, which allows more different actives.  
-
-
-```{r}
-unique(strat$design_element)
-```
-
 
 
 # Cite packages
@@ -1806,3 +1579,214 @@ eissions_sources_east <- ggplot(sources %>% dplyr::filter(region == "east"),
 eissions_sources_east
 ```
   
+
+## 7.5. Diversification plots
+
+```{r}
+unique(strat$design_element)
+```
+
+Plot some of the yearly design elements.
+```{r}
+strat %>%
+  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
+  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
+  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
+  dplyr:: group_by(ID) %>% 
+  dplyr::filter(design_element %in% c("tillage_depth_yr", "herb_applic_n_yr", "selherb_vol_yr", "gly_vol_yr" )) %>% #"aut_gly_n_yr", 
+  dplyr::mutate(design_element = factor(design_element, levels=c("tillage_depth_yr", "herb_applic_n_yr", "selherb_vol_yr",  "gly_vol_yr"))) %>% #"aut_gly_n_yr",
+  ggplot(aes(fill=design_element, y=scaled_value, x=initdenres)) +
+    #geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
+    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + #, outlier.colour="transparent"
+    scale_fill_viridis(discrete=T, name="",
+                       labels = c("Tillage depth", 
+                                  "Herbicide application frequency", 
+                                  "Selective herbicide volume", 
+                                  #"Autumn glyphosate application frequency",  
+                                  "Glyphosate volume")
+                       ) +
+    #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
+    #theme_ipsum()  +
+    theme_classic() +
+    xlab("") +
+    ylab("Scaled value") #+
+    #ylim(0,1)
+```
+
+
+Annual volumes of herbicide applied.
+```{r}
+strat %>%
+  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
+  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
+  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
+  dplyr:: group_by(ID) %>% 
+  dplyr::filter(design_element %in% c("selherb_vol_yr", "gly_vol_yr" )) %>% 
+  dplyr::mutate(design_element = factor(design_element, levels=c("selherb_vol_yr",  "gly_vol_yr"))) %>% 
+  ggplot(aes(fill=design_element, y=value, x=initdenres)) +
+    #geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
+    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + 
+    scale_fill_manual(values=c("#332288", "#117733"),
+                      labels = c("Selective herbicide", 
+                                  "Glyphosate")) +
+    # scale_fill_manual(values=c("#999999", "#E69F00"),
+    #                   labels = c("Selective herbicide", 
+    #                               "Glyphosate")) + #, "#56B4E9"
+    # scale_fill_viridis(discrete=T, 
+    #                    #option = "D", #(this is the)
+    #                    name="",
+    #                    labels = c("Selective herbicide", 
+    #                               "Glyphosate")
+    #                    ) +
+    #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
+    #theme_ipsum()  +
+    theme_classic() +
+    theme(legend.title=element_blank()) +
+    xlab("") +
+    ylab(expression("Volume "*("l "*ha^{-1}*yr^{-1})))
+    #ylab(bquote('Volume'~(l^-1)))
+    #ylab("Volume (l/ ha/ yr)") #+
+    #ylim(0,1)
+```
+
+This plot is good as it shows, compared to BAU, sometimes reduced selective herbicide volume but increased glyphosate volume.
+
+
+Rotation herbicide volumes.
+```{r}
+strat %>%
+  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
+  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
+  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
+  dplyr:: group_by(ID) %>% 
+  dplyr::filter(design_element %in% c("selherb_rot_vol", "gly_rot_vol" )) %>% 
+  dplyr::mutate(design_element = factor(design_element, levels=c("selherb_rot_vol",  "gly_rot_vol"))) %>% 
+  ggplot(aes(fill=design_element, y=value, x=initdenres)) +
+    #geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
+    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + 
+    scale_fill_manual(values=c("#332288", "#117733"),
+                      labels = c("Selective herbicide", 
+                                  "Glyphosate")) +
+    theme_classic() +
+    theme(legend.title=element_blank()) +
+    xlab("") +
+    ylab(expression("Volume "*("l "*ha^{-1})))
+```
+
+
+
+Plot rotation active ingredients and stale seed beds.
+```{r}
+strat %>%
+  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
+  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
+  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
+  dplyr:: group_by(ID) %>% 
+  dplyr::filter(design_element %in% c("herb_applic_n_rot", "diff_act_tot_n_rot", "ssb_tot_n_rot")) %>%
+  dplyr::mutate(design_element = factor(design_element, levels=c("herb_applic_n_rot", "diff_act_tot_n_rot", "ssb_tot_n_rot"))) %>% 
+  ggplot(aes(fill=design_element, y=value, x=initdenres)) +
+    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + #, outlier.colour="transparent"
+    scale_fill_manual(values=c("#CC6677", "#DDCC77", "#AA4499"), #"#AA4499", "#443F41"
+                      labels = c(
+                        "Herbicide applications",
+                        "Active ingredients",
+                        "Stale seedbed")
+                      ) +
+    # scale_fill_viridis(discrete=T, name="",
+    #                    labels = c("Number of different actives", 
+    #                               "Number of different crops", 
+    #                               "Number of spring crops", 
+    #                               "Number of stale seed beds"#,  
+    #                               #"Glyphosate total volume"
+    #                               )
+    #                    ) +
+    geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
+    #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
+    #theme_ipsum()  +
+    theme_classic() +
+    theme(legend.title=element_blank()) +
+    xlab("") +
+    ylab("Count (total number in rotation)") #+
+    #ylim(0,1)
+```
+
+This doesn't really work. Which is the most interesting?
+
+Plot rotation crop diversity.  
+Number of spring crops  
+Number of different crops  
+```{r}
+strat %>%
+  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
+  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
+  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
+  dplyr:: group_by(ID) %>% 
+  dplyr::filter(design_element %in% c("diff_crops_tot_n_rot", "spring_crops_tot_n_rot")) %>% 
+  dplyr::mutate(design_element = factor(design_element, levels=c("diff_crops_tot_n_rot", "spring_crops_tot_n_rot"))) %>% 
+  ggplot(aes(fill=design_element, y=value, x=initdenres)) +
+    
+    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + #, outlier.colour="transparent"
+    scale_fill_manual(values=c("#88CCEE", "#44AA99"),
+                       labels = c("Different crops",
+                                  "Spring crops")
+                       ) +
+    # scale_fill_viridis(discrete=T, name="",
+    #                    labels = c("n spring crops", 
+    #                               "n different crops")
+    #                    ) +
+    #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
+    #theme_ipsum()  +
+    geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
+  
+    theme_classic() +
+    theme(legend.title=element_blank()) +
+    xlab("") +
+    ylab("Count (total number in rotation)") #+
+    #ylim(0,1)
+```
+
+
+Plot frequencies.  
+Number of herbicide applications per year.
+Number of actives per year.  
+Number autumn glyphosate applications per year.
+```{r}
+strat %>%
+  dplyr::mutate(initdenres = fct_recode(initdenres, "BAU" = "NA")) %>% 
+  dplyr::mutate(initdenres = factor(initdenres, levels=c("BAU", "LD-LR", "LD-HR", "HD-HR"))) %>%
+  dplyr::mutate(ID = paste(scenario, initdenres)) %>% 
+  dplyr:: group_by(ID) %>% 
+  dplyr::filter(design_element %in% c("herb_applic_n_yr", "actives_n_yr")) %>% 
+  dplyr::mutate(design_element = factor(design_element, levels=c("herb_applic_n_yr", "actives_n_yr"))) %>% 
+  ggplot(aes(fill=design_element, y=value, x=initdenres)) +
+    #geom_point(color="lightgrey", size=1, width=0.1, position=position_jitterdodge() , alpha=0.4) +
+    geom_boxplot(position=position_dodge2(preserve = "total"), alpha=0.5, outlier.colour="grey") + #, outlier.colour="transparent"
+    scale_fill_manual(values=c("#DDCC77", "#CC6677"),
+                       labels = c("Herbicide applications",
+                                  "Active ingredients")
+                       ) +
+    # scale_fill_viridis(discrete=T, name="",
+    #                    labels = c("Herbicide applications", 
+    #                               "Active ingredients", 
+    #                               "Autumn glyphosate",
+    #                               "Stale seedbeds")
+    #                    ) +
+    #geom_text(data=strat, aes(label=paste0("n: ",n), y=median-2), position=position_dodge(1), hjust=0.5) +
+    #theme_ipsum()  +
+    theme_classic() +
+    theme(legend.title=element_blank()) +
+    xlab("") +
+    ylab("Application frequency (number / year)") +
+    scale_y_continuous(breaks=seq(0,8,2))
+    #ylim(0,8)
+```
+
+
+This one maybe not very useful. I think the number of herbicide applications rose because there were more stale seedbeds. Might be better just to show that.  
+Active ingredients per year doesn't change much overall (mean goes down with increasing BG severity), but earlier plot shows more actives used across a rotation. So farmers use slightly fewer actives per crop but more different crops, which allows more different actives.  
+
+
+```{r}
+unique(strat$design_element)
+```
+
