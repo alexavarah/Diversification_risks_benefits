@@ -1117,7 +1117,7 @@ names(soiltype.labs) <- c("heavy", "medium", "light") # original
 # north ----
 sources_n_1col <- ggplot(sources %>% dplyr::filter(region == "north"), 
                aes(source_of_emissions, rotation_mean, colour = rotation_mean > 0)) + 
-  scale_colour_manual(values = c("#009E73", "#D55E00"), labels = c("MIT wins", "MIT loses")) +
+  scale_colour_manual(values = c("#009E73", "#CC6677"), labels = c("MIT wins", "MIT loses")) +
   facet_grid(soiltype ~ initDR, 
              labeller = labeller(soiltype = soiltype.labs, initDR = denres.labs)#,
              #scales="free_y"
@@ -1149,7 +1149,7 @@ sources_n_1col <- ggplot(sources %>% dplyr::filter(region == "north"),
 # central ----
 sources_c_1col <- ggplot(sources %>% dplyr::filter(region == "central"), 
                aes(source_of_emissions, rotation_mean, colour = rotation_mean > 0)) + 
-  scale_colour_manual(values = c("#009E73", "#D55E00"),
+  scale_colour_manual(values = c("#009E73", "#CC6677"),
                       labels = c("MIT wins", "MIT loses")) +
   facet_grid(soiltype ~ initDR,
              labeller = labeller(soiltype = soiltype.labs, 
@@ -1181,7 +1181,7 @@ sources_c_1col <- ggplot(sources %>% dplyr::filter(region == "central"),
 # east ----
 sources_e_1col <- ggplot(sources %>% dplyr::filter(region == "east"), 
                aes(source_of_emissions, rotation_mean, colour = rotation_mean > 0)) + 
-  scale_colour_manual(values = c("#009E73", "#D55E00"),
+  scale_colour_manual(values = c("#009E73", "#CC6677"),
                       labels = c("MIT wins", "MIT loses")) +
   facet_grid(soiltype ~ initDR,
              labeller = labeller(soiltype = soiltype.labs, 
