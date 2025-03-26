@@ -776,7 +776,8 @@ p_LDLR <- ggplot(res_tidy %>% filter(initDR3 == "LD-LR", year == 6),
     plot.title = element_text(size = 30, face = "bold"),
     legend.position = "none"  # Remove legend
   ) + 
-  ggtitle("LD-LR") 
+  ggtitle("LD-LR") +
+  ylim(0, 1)
 
 
 # Plot LD-HR----
@@ -795,7 +796,8 @@ p_LDHR <- ggplot(res_tidy %>% filter(initDR3 == "LD-HR", year == 6),
     axis.title=element_text(size=34),
     axis.text.x=element_text(size=30), 
     axis.title.y = element_blank(),
-    axis.text.y=element_text(size=30),
+    axis.text.y=element_blank(),
+    #axis.text.y=element_text(size=30),
     # axis.text.x=element_text(size=rel(2.2)), 
     # axis.text.y=element_text(size=rel(2.2)),
     plot.title = element_text(size = 30, face = "bold"),
@@ -817,9 +819,10 @@ p_HDHR <- ggplot(res_tidy %>% filter(initDR3 == "HD-HR", year == 6),
     axis.line = element_line(color = "black"),  # Black axis lines for both x and y
     axis.ticks = element_line(color = "black"),  # Black axis ticks
     axis.title=element_text(size=34),
-    axis.title.y = element_blank(),
     axis.text.x=element_text(size=30), 
-    axis.text.y=element_text(size=30),
+    axis.title.y = element_blank(),
+    axis.text.y=element_blank(),
+    #axis.text.y=element_text(size=30),
     # axis.text.x=element_text(size=rel(2.2)), 
     # axis.text.y=element_text(size=rel(2.2)),
     plot.title = element_text(size = 30, face = "bold"),
@@ -843,7 +846,7 @@ Save plot.
 # print(bg_density_yr6)
 # dev.off()
 
-pdf("../figures/bg_density_yr6_test.pdf", height = 10, width = 25)
+pdf("../figures/bg_density_yr6.pdf", height = 10, width = 25)
 print(bg_density_yr6)
 dev.off()
 ```
