@@ -42,6 +42,10 @@ This contains emissions from diesel used in tillage, herb spraying, fert spreadi
 # Load packages
 rm(list = ls(all = TRUE)) # clear envt
 #library(hrbrthemes) # for theme_ipsum() in plot
+# remove.packages("tidyverse")
+# install.packages(c("ggplot2", "dplyr", "tidyr", "readr", "purrr", "tibble", "stringr"))
+# install.packages("tidyverse")
+# install.packages("tidyverse")
 library(tidyverse)
 library(patchwork) # for panel plots
 library(grateful)
@@ -167,9 +171,10 @@ strat <- strat %>%
 rm(strat2)
 ```
 
-## 3.2. Summarise gross profit, opp costs, yield & carbon across rotations 
+## 3.2. Summarise final weed density, gross profit, opp costs, yield & carbon across rotations 
 For plots of the effect of initial density-resistance state *within regions and soil types* (i.e., panel plots, where panels are region and soil), range needs to show variability across years in the rotation.  
-  
+
+### 3.2.1. Carbon, gross profit, yield (rotation mean and differences between BAU and MIT)
 ```{r, attr.source='.numberLines'}
 trdoff_rot <- c_gp_yld %>% 
   dplyr::group_by(scenario, region, soiltype, initDR) %>% 
@@ -223,6 +228,89 @@ trdoff_rot <- c_gp_yld %>%
 
 
 
+
+### 3.2.3. Weed density ((a) rotation mean density and (b) proportion h & vh in year 6)
+```{r, attr.source='.numberLines'}
+rm(density_rot)
+density_rot <- res_tidy %>%
+  dplyr::rename(initDR = initDR3) %>% # rename the column
+  
+  # Sum the proportions of high and very high density black-grass
+  rowwise() %>% 
+  dplyr::mutate(hvh = sum(c_across(h:v), na.rm = T)) %>%  # new category: h & vh
+  ungroup() %>% 
+  
+  # Specify order of factor levels and arrange df
+  dplyr::mutate( # specify factor levels
+    scenario = factor(scenario, levels = c("BAU", "MIT")),
+    region = factor(region, levels = c("north", "central", "east")),
+    soiltype = factor(soiltype, levels = c("heavy", "medium","light")),
+    initDR = factor(initDR, levels = c("LD-LR", "LD-HR", "HD-HR"))
+    ) %>% 
+  
+  # Calculate mean across imputations for each year of each strategy
+  group_by(scenario, initDR, region, soiltype, year) %>% 
+  dplyr::mutate(
+    mds_mean = mean(mds), # mean density state across imputations
+    hvh_mean = mean(hvh) # mean proportion of field with high or very high density across imputations
+  ) %>% 
+  ungroup() %>% 
+  distinct(scenario, initDR, region, soiltype, year, .keep_all = TRUE) %>% # retain only one unique row per strategy-year
+  dplyr::select(scenario, initDR, region, soiltype, year, mds_mean, hvh_mean) %>% # pull out useful columns
+  dplyr::rename(mds = mds_mean, hvh = hvh_mean) %>% # rename columns
+  ungroup() %>% 
+  dplyr::arrange(scenario, initDR, region, soiltype, year) %>% 
+  
+  # Calculate rotation mean density
+  dplyr::group_by(scenario, initDR, region, soiltype) %>% 
+  dplyr::mutate(mds_rot_mean = mean(mds)) %>% 
+  ungroup() %>% 
+  dplyr::filter(year == 6) %>% # retain just year 6
+  
+  # Calculate difference between MIT and BAU for rotation means and for yr6
+  dplyr::group_by(initDR, region, soiltype) %>% 
+  dplyr::mutate(
+    mds_diff = mds_rot_mean - mds_rot_mean[scenario == "BAU"],
+    hvhyr6_diff = hvh - hvh[scenario == "BAU"]
+  ) %>% 
+  ungroup() %>% 
+
+  # Calculate percentage change
+  dplyr::group_by(region, soiltype, initDR) %>% 
+  dplyr::mutate(
+    mds_pc = (mds_diff/mds_rot_mean[scenario == "BAU"])*100, # % change in rotation mean density
+    hvhyr6_pc = (hvhyr6_diff/hvh[scenario == "BAU"])*100 # % change in proportion of hvh at year 6
+  ) %>% 
+  ungroup() %>% 
+  
+  # Calculate min and max values (this grouping will give range across region and soil types)
+  dplyr::filter(scenario == "MIT") %>% 
+  dplyr::group_by(initDR) %>%
+  dplyr::mutate(
+    # min & max % change in rotation mean density
+    mds_pc_min = min(mds_pc, na.rm = TRUE), 
+    mds_pc_max = max(mds_pc, na.rm = TRUE), 
+    # min & max % change in proportion of hvh at year 6
+    hvhyr6_pc_min = min(hvhyr6_pc, na.rm = TRUE), 
+    hvhyr6_pc_max = max(hvhyr6_pc, na.rm = TRUE), 
+  ) %>%
+  ungroup() %>%
+  dplyr::select(initDR, region, soiltype, mds_pc:hvhyr6_pc_max) %>% 
+  
+  # Calculate mean for each level of initDR
+  dplyr::group_by(initDR) %>% 
+  dplyr::mutate(
+    mds_pc_mean = mean(mds_pc), # mean % change in rotation mean density
+    hvhyr6_pc_mean = mean(hvhyr6_pc), # mean % change in rotation mean density
+  ) %>% 
+  ungroup() %>% 
+  
+  # Tidy the data frame
+  distinct(initDR, .keep_all = TRUE) %>% # retain only one unique row per initial density-resistance state
+  dplyr::select (initDR, mds_pc_mean, mds_pc_min, mds_pc_max, hvhyr6_pc_mean, hvhyr6_pc_min, hvhyr6_pc_max) # retain required columns
+```
+
+
 ## 3.3. Emissions sources 
 
 Sources of GHG emissions:  
@@ -239,7 +327,6 @@ c_field_energy_use
 Calculate differences due to each source.
 ```{r}
 c_source <- c_gp_yld %>% 
-  
   # find differences between BAU and MIT for each GHG source
   dplyr::group_by(region, soiltype, initDR, year) %>% 
   dplyr::mutate(
@@ -307,6 +394,7 @@ c_source
 ```
 
 Convert from wide to long for plotting.
+
 ```{r}
 mean_df <- c_source %>%
   dplyr::select(region, soiltype, initDR, contains('mean')) %>% 
@@ -355,8 +443,11 @@ sources <- dplyr::left_join(mean_df, min_df, by = c("region", "soiltype", "initD
 rm(mean_df, min_df, max_df, c_source)
 ```
 
+
+
+
 # 4. Tables
-## 4.1. Mean difference in C emissions per initDR - 
+## 4.1. Mean difference in C emissions per initDR 
 ### 4.1.1. Calculate difference for each year, take mean across rotation
 (a) WRONG This gives min and max values across regions and soil types. Used in the paper.  
 ```{r}
@@ -546,8 +637,8 @@ c_gp_yld %>%
 
 
 
-## 4.2. Summary table in paper: Percentage change in gp, C, calories, landuse, for each level of initDR
-## 4.1. Calculate % change from rotation means for 3 levels of initDR
+## 4.2. Summary table in paper: Percentage change in yr 6 weed density, gp, C, calories, landuse, for each level of initDR
+### 4.2.1. Calculate % change from rotation means for 3 levels of initDR
 Here, I calculate the mean gp, kcal, land use, and GHG emissions across the rotation, then calculate the difference between BAU and MIT for each rotation, then calculate the % change for the rotation. The min and max values show the range across regions and soil types.  
 ```{r}
 pc_change_rotn <- c_gp_yld %>%
@@ -651,9 +742,20 @@ pc_change_rotn
 
 This approach (in which I calculated % change from rotation means) is the same as the approach used in the previous paper. This approach also makes more sense than the one below as here, the calories produced per m2 match up better with the landuse. If you produce more calories per m2 in MIT, then you should require less land to produce 1000 kcal. This is reflected here: where the % change is +ve for calories, it's -ve for landuse. Using the first approach, this relationship isn't there.
 
-## 4.2. Save output as .csv
+### 4.2.2. Add in pc change for weed density.
 ```{r}
-write.csv(pc_change_rotn, "../output/summarytable_from_rotn_means.csv", row.names = FALSE)
+pc_change_all <- pc_change_rotn %>% 
+  dplyr::left_join(density_rot, by = "initDR") %>% 
+  dplyr::select(-c(mds_pc_mean, mds_pc_min, mds_pc_max)) %>% 
+  dplyr::relocate(hvhyr6_pc_mean:hvhyr6_pc_max, .after = initDR)
+
+# Tidy up
+rm(pc_change_rotn, density_rot)
+```
+
+## 4.3. Save output as .csv
+```{r}
+write.csv(pc_change_all, "../output/summarytable_percent_change.csv", row.names = FALSE)
 ```
 
 
