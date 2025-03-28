@@ -42,10 +42,9 @@ This contains emissions from diesel used in tillage, herb spraying, fert spreadi
 # Load packages
 rm(list = ls(all = TRUE)) # clear envt
 #library(hrbrthemes) # for theme_ipsum() in plot
-# remove.packages("tidyverse")
-# install.packages(c("ggplot2", "dplyr", "tidyr", "readr", "purrr", "tibble", "stringr"))
-# install.packages("tidyverse")
-# install.packages("tidyverse")
+remove.packages("tidyverse")
+install.packages(c("ggplot2", "dplyr", "tidyr", "readr", "purrr", "tibble", "stringr"))
+install.packages("tidyverse")
 library(tidyverse)
 library(patchwork) # for panel plots
 library(grateful)
@@ -393,8 +392,10 @@ dplyr::group_by(scenario, region, soiltype, initDR) %>%
 c_source
 ```
 
-Convert from wide to long for plotting.
 
+
+
+Convert from wide to long for plotting.
 ```{r}
 mean_df <- c_source %>%
   dplyr::select(region, soiltype, initDR, contains('mean')) %>% 
@@ -1273,6 +1274,547 @@ dev.off()
 ```
 
 
+## 6.2. Difference in profit by cost component
+### 6.2.1. Calculate the differences between BAU and MIT for required variables  
+  
+Herbicide cost (£/ha) = ('bgherb' application rate (l/ha) × bgherb price (£/l)) + ('glyphosate' application rate (l/ha) × (glyphosate price (£/l))  
+Fertiliser cost (£/ha) = (N fertiliser rate (kg/ha) × N Fertiliser price (£/kg)) + (P fertiliser rate (kg/ha) × P fertiliser price (£/kg)) + (K fertiliser rate (kg/ha) × K fertiliser price (£/kg))  
+Seed cost (£/ha) = Seed rate (kg/ha) × Seed price (£/kg)  
+Sundry cost (£/ha) is primarily the cost of other chemicals and other miscellaneous costs.  
+Variable cost (£/ha) = Fertiliser cost + Seed cost + Herbicide cost + Sundry cost  
+Fuel cost (£/ha) = Machine work rate (h/ha) × Fuel consumption (l/h) × Fuel price (£/l)  
+Labour cost (£/ha) = Work rate (h/ha) × Hourly labour wage (£/h)  
+Operation cost (£/ha) = Fuel cost + Labour cost  
+  
+Use costs for herbicide, fertiliser, operations, seed, sundry. Also costs due to yield loss.  
+```{r}
+rm(cost_differences)
+cost_differences <- c_gp_yld %>% 
+
+# 1. Calculate difference between MIT and BAU
+  dplyr::group_by(initDR, region, soiltype, year) %>% 
+  dplyr::mutate(
+    output_diff = output - output[scenario == "BAU"], 
+    cyl_diff = cyl - cyl[scenario == "BAU"], 
+    herb_diff = herbicide_cost - herbicide_cost[scenario == "BAU"],
+    fert_diff = fertiliser_cost - fertiliser_cost[scenario == "BAU"],
+    ops_diff = operations_cost - operations_cost[scenario == "BAU"],
+    seed_diff = seed_cost - seed_cost[scenario == "BAU"],
+    sundry_diff = sundry_cost - sundry_cost[scenario == "BAU"]
+  ) %>% 
+  ungroup() %>% 
+
+# 2. Get rotation min and max
+  dplyr::filter(scenario == "MIT") %>% 
+  dplyr::group_by(initDR, region, soiltype) %>% # this grouping will give range across years
+  dplyr::mutate(
+    # min & max difference in output
+    output_diff_min = min(output_diff, na.rm = TRUE), 
+    output_diff_max = max(output_diff, na.rm = TRUE), 
+    # min & max difference in cost due to yield losses
+    cyl_diff_min = min(cyl_diff, na.rm = TRUE), 
+    cyl_diff_max = max(cyl_diff, na.rm = TRUE), 
+    # min & max difference in cost due to herbicides
+    herb_diff_min = min(herb_diff, na.rm = TRUE), 
+    herb_diff_max = max(herb_diff, na.rm = TRUE), 
+    # min & max difference in cost due to fertilisers
+    fert_diff_min = min(fert_diff, na.rm = TRUE), 
+    fert_diff_max = max(fert_diff, na.rm = TRUE), 
+    # min & max difference in cost due to fuel, labour, operations
+    ops_diff_min = min(ops_diff, na.rm = TRUE), 
+    ops_diff_max = max(ops_diff, na.rm = TRUE), 
+    # min & max difference in cost due to fuel, labour, operations
+    seed_diff_min = min(seed_diff, na.rm = TRUE), 
+    seed_diff_max = max(seed_diff, na.rm = TRUE), 
+    # min & max difference in cost due to sundries and variables
+    sundry_diff_min = min(sundry_diff, na.rm = TRUE), 
+    sundry_diff_max = max(sundry_diff, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+
+# 3. Calculate rotation mean
+  dplyr::group_by(initDR, region, soiltype) %>% 
+  dplyr::mutate(
+    output_diff_mean = mean(output_diff),
+    cyl_diff_mean = mean(cyl_diff), 
+    herb_diff_mean = mean(herb_diff), 
+    fert_diff_mean = mean(fert_diff), 
+    ops_diff_mean = mean(ops_diff), 
+    seed_diff_mean = mean(seed_diff),
+    sundry_diff_mean = mean(sundry_diff)
+  ) %>% 
+  ungroup() %>% 
+  
+# 4. Retain just useful rows/columns & tidy
+  distinct(initDR, region, soiltype, .keep_all = TRUE) %>%
+  dplyr::select (initDR, region, soiltype, 
+                 output_diff_mean, output_diff_min, output_diff_max,
+                 cyl_diff_mean, cyl_diff_min, cyl_diff_max,
+                 herb_diff_mean, herb_diff_min, herb_diff_max,
+                 fert_diff_mean, fert_diff_min, fert_diff_max,
+                 ops_diff_mean, ops_diff_min, ops_diff_max,
+                 seed_diff_mean, seed_diff_min, seed_diff_max,
+                 sundry_diff_mean, sundry_diff_min, sundry_diff_max
+                 )
+```
+
+
+### 6.2.2. Convert from wide to long for plotting
+```{r}
+mean_cost_diff_df <- cost_differences %>%
+  dplyr::select(region, soiltype, initDR, contains('mean')) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("_diff_mean", "", .x)) %>% # remove '_diff_mean' from column names
+  pivot_longer(
+    cols = output:sundry,
+    names_to = "source_of_cost_difference",
+    values_to = "rotation_mean",
+    values_drop_na = TRUE
+  )
+
+min_cost_diff_df <- cost_differences %>%
+  dplyr::select(region, soiltype, initDR, contains('min')) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("_diff_min", "", .x)) %>% # remove '_diff_min' from column names
+  pivot_longer(
+    cols = output:sundry,
+    names_to = "source_of_cost_difference",
+    values_to = "rotation_min",
+    values_drop_na = TRUE
+  )
+
+max_cost_diff_df <- cost_differences %>%
+  dplyr::select(region, soiltype, initDR, contains('max')) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("_diff_max", "", .x)) %>% # remove '_diff_max' from column names
+  pivot_longer(
+    cols = output:sundry,
+    names_to = "source_of_cost_difference",
+    values_to = "rotation_max",
+    values_drop_na = TRUE
+  )
+
+# Join data frames
+sources_of_costs <- dplyr::left_join(mean_cost_diff_df, min_cost_diff_df, by = c("region", "soiltype", "initDR", "source_of_cost_difference")) %>% 
+  dplyr::left_join(., max_cost_diff_df, by = c("region", "soiltype", "initDR", "source_of_cost_difference")) %>% 
+  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'cyl', 'lost yield costs'))) %>%
+  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'herb', 'herbicide costs'))) %>%
+  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'ops', 'operations costs'))) %>%
+  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'fert', 'fertiliser costs'))) %>% 
+  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'seed', 'seed costs'))) %>% 
+  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'sundry', 'sundry costs'))) %>% 
+  dplyr::mutate(source_of_cost_difference = factor(source_of_cost_difference,
+                                                   levels = c(
+                                                     "output",
+                                                     "lost yield costs", 
+                                                     "herbicide costs",
+                                                     "fertiliser costs",
+                                                     "operations costs",
+                                                     "seed costs",
+                                                     "sundry costs")))
+  
+# Tidy up
+rm(mean_cost_diff_df, min_cost_diff_df, max_cost_diff_df)
+```
+
+
+### 6.2.3. Plot
+
+Specify panel labels.
+```{r, specify-panel-labels, echo=FALSE}
+denres.labs <- c("LD-LR", "LD-HR", "HD-HR") # new
+names(denres.labs) <- c("LD-LR", "LD-HR", "HD-HR") # original
+
+soiltype.labs <- c("Heavy soil", "Medium soil", "Light soil") # new
+names(soiltype.labs) <- c("heavy", "medium", "light") # original
+```
+
+
+
+Make plots & combine.  
+A -ve value means MIT wins (green = MIT wins, orange = MIT loses) 
+```{r}
+# north ----
+cost_sources_n_1col <- ggplot(sources_of_costs %>% 
+                           dplyr::filter(region == "north" & !grepl("output", source_of_cost_difference)),
+               aes(source_of_cost_difference, rotation_mean, colour = rotation_mean > 0)) + 
+  scale_colour_manual(values = c("#009E73", "#CC6677"), 
+                      labels = c("MIT wins", "MIT loses")) +
+  facet_grid(soiltype ~ initDR, 
+             labeller = labeller(soiltype = soiltype.labs, initDR = denres.labs)
+             ) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Source of costs", 
+       y = expression(atop("Mean annual difference in costs",
+                           paste("between scenarios (MIT-BAU) (£ / ha)")))
+       ) +
+  geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "none",
+        tag.text = element_text(size=22)
+        )
+
+
+# central ----
+cost_sources_c_1col <- ggplot(sources_of_costs %>% 
+                           dplyr::filter(region == "central" & !grepl("output", source_of_cost_difference)),
+               aes(source_of_cost_difference, rotation_mean, colour = rotation_mean > 0)) + 
+  scale_colour_manual(values = c("#009E73", "#CC6677"), 
+                      labels = c("MIT wins", "MIT loses")) +
+  facet_grid(soiltype ~ initDR,
+             labeller = labeller(soiltype = soiltype.labs, 
+                                 initDR = denres.labs)
+             ) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Source of costs", 
+       y = expression(atop("Mean annual difference in costs",
+                           paste("between scenarios (MIT-BAU) (£ / ha)")))
+       #y = expression("Difference in costs between scenarios (MIT-BAU) (£ / ha)")
+       ) +
+  geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "none"
+        ) 
+
+
+# east ----
+cost_sources_e_1col <- ggplot(sources_of_costs %>% 
+                           dplyr::filter(region == "east" & !grepl("output", source_of_cost_difference)),
+               aes(source_of_cost_difference, rotation_mean, colour = rotation_mean > 0)) + 
+  scale_colour_manual(values = c("#009E73", "#CC6677"), 
+                      labels = c("MIT wins", "MIT loses")) +
+  facet_grid(soiltype ~ initDR,
+             labeller = labeller(soiltype = soiltype.labs, 
+                                 initDR = denres.labs)
+             ) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Source of costs", 
+       y = expression(atop("Mean annual difference in costs",
+                           paste("between scenarios (MIT-BAU) (£ / ha)")))
+       #y = expression("Difference in costs between scenarios (MIT-BAU) (£ / ha)")
+       ) +
+  geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "bottom"
+        ) 
+
+
+
+# combine
+cost_sources_1col <- cost_sources_n_1col + cost_sources_c_1col + cost_sources_e_1col + plot_layout(ncol = 1) +
+  plot_annotation(
+    #tag_levels = 'a', 
+    tag_levels = list(c("(a) North", "(b) Central" , "(c) East")),
+    tag_prefix = '',  
+    tag_suffix = ''
+    ) & 
+  theme(plot.tag = element_text(size = 22, face="bold"))
+```
+
+
+
+
+
+### 6.2.4. Save plot
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/plot_all_outcomes_1col.png",
+#     height = 30, width = 10, units = "in", res = 300)
+# print(facetpanel_1col)
+# dev.off()
+
+pdf("../figures/costs-only_sources_1col.pdf", height = 30, width = 10)
+print(cost_sources_1col)
+dev.off()
+```
+
+
+## 6.3. Total costs and output
+### 6.3.1. Calculate the differences between BAU and MIT for output and total costs
+Add variable and operations costs to get total costs.  
+  
+Herbicide cost (£/ha) = ('bgherb' application rate (l/ha) × bgherb price (£/l)) + ('glyphosate' application rate (l/ha) × (glyphosate price (£/l))  
+Fertiliser cost (£/ha) = (N fertiliser rate (kg/ha) × N Fertiliser price (£/kg)) + (P fertiliser rate (kg/ha) × P fertiliser price (£/kg)) + (K fertiliser rate (kg/ha) × K fertiliser price (£/kg))  
+Seed cost (£/ha) = Seed rate (kg/ha) × Seed price (£/kg)  
+Sundry cost (£/ha) is primarily the cost of other chemicals and other miscellaneous costs.  
+TOTAL: *Variable cost (£/ha) = Fertiliser cost + Seed cost + Herbicide cost + Sundry cost*  
+Fuel cost (£/ha) = Machine work rate (h/ha) × Fuel consumption (l/h) × Fuel price (£/l)  
+Labour cost (£/ha) = Work rate (h/ha) × Hourly labour wage (£/h)  
+TOTAL: *Operation cost (£/ha) = Fuel cost + Labour cost*  
+  
+```{r}
+rm(cost_output_diffs)
+cost_output_diffs <- c_gp_yld %>% 
+
+# 1. Sum variable and ops costs
+  rowwise() %>% 
+  dplyr::mutate(tot_costs = sum(variables_cost, operations_cost, na.rm = T)) %>%  # new category: h & vh
+  ungroup() %>% 
+  
+# 2. Calculate difference between MIT and BAU
+  dplyr::group_by(initDR, region, soiltype, year) %>% 
+  dplyr::mutate(
+    output_diff = output - output[scenario == "BAU"], 
+    costs_diff = tot_costs - tot_costs[scenario == "BAU"]
+  ) %>% 
+  ungroup() %>% 
+
+# 2. Get rotation min and max
+  dplyr::filter(scenario == "MIT") %>% 
+  dplyr::group_by(initDR, region, soiltype) %>% # this grouping will give range across years
+  dplyr::mutate(
+    # min & max difference in output
+    output_diff_min = min(output_diff, na.rm = TRUE), 
+    output_diff_max = max(output_diff, na.rm = TRUE), 
+    # min & max difference in cost due to yield losses
+    costs_diff_min = min(costs_diff, na.rm = TRUE), 
+    costs_diff_max = max(costs_diff, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+
+# 3. Calculate rotation mean
+  dplyr::group_by(initDR, region, soiltype) %>% 
+  dplyr::mutate(
+    output_diff_mean = mean(output_diff),
+    costs_diff_mean = mean(costs_diff)
+  ) %>% 
+  ungroup() %>% 
+  
+# 4. Retain just useful rows/columns & tidy
+  distinct(initDR, region, soiltype, .keep_all = TRUE) %>%
+  dplyr::select (initDR, region, soiltype, 
+                 output_diff_mean, output_diff_min, output_diff_max,
+                 costs_diff_mean, costs_diff_min, costs_diff_max
+                 )
+```
+
+### 6.3.2. Convert from wide to long for plotting
+```{r}
+mean_CO_diff <- cost_output_diffs %>%
+  dplyr::select(region, soiltype, initDR, contains('mean')) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("_diff_mean", "", .x)) %>% # remove '_diff_mean' from column names
+  pivot_longer(
+    cols = output:costs,
+    names_to = "source",
+    values_to = "rotation_mean",
+    values_drop_na = TRUE
+  )
+
+min_CO_diff <- cost_output_diffs %>%
+  dplyr::select(region, soiltype, initDR, contains('min')) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("_diff_min", "", .x)) %>% # remove '_diff_min' from column names
+  pivot_longer(
+    cols = output:costs,
+    names_to = "source",
+    values_to = "rotation_min",
+    values_drop_na = TRUE
+  )
+
+max_CO_diff <- cost_output_diffs %>%
+  dplyr::select(region, soiltype, initDR, contains('max')) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub("_diff_max", "", .x)) %>% # remove '_diff_max' from column names
+  pivot_longer(
+    cols = output:costs,
+    names_to = "source",
+    values_to = "rotation_max",
+    values_drop_na = TRUE
+  )
+
+# Join data frames
+CO_df <- dplyr::left_join(mean_CO_diff, min_CO_diff, by = c("region", "soiltype", "initDR", "source")) %>% 
+  dplyr::left_join(., max_CO_diff, by = c("region", "soiltype", "initDR", "source")) %>% 
+  dplyr::mutate(across('source', ~ str_replace(., 'costs', 'total costs'))) %>% 
+  dplyr::mutate(source = factor(source, levels = c("output", "total costs")))
+  
+# Tidy up
+rm(mean_CO_diff, min_CO_diff, max_CO_diff)
+```
+
+
+### 6.2.3. Plot
+
+Specify panel labels.
+```{r, specify-panel-labels, echo=FALSE}
+denres.labs <- c("LD-LR", "LD-HR", "HD-HR") # new
+names(denres.labs) <- c("LD-LR", "LD-HR", "HD-HR") # original
+
+soiltype.labs <- c("Heavy soil", "Medium soil", "Light soil") # new
+names(soiltype.labs) <- c("heavy", "medium", "light") # original
+```
+
+
+Plot output and costs - without the max and min as the ranges make the points so close to zero that can't see much.  
+For output, a +ve value means MIT wins (green = MIT wins, pink = MIT loses)  
+For costs, a -ve value means MIT wins (green = MIT wins, pink = MIT loses)  
+```{r}
+rm(CO_df_2)
+# Create a new column to specify colours
+CO_df_2 <- CO_df %>%
+  dplyr::mutate(color = case_when(
+    grepl("costs", source) & rotation_mean <= 0 ~ "#009E73",  # If 'costs' and y <= 0, color green
+    grepl("costs", source) & rotation_mean > 0  ~ "#CC6677",    # If 'costs' and y > 0, color red
+    grepl("output", source) & rotation_mean < 0 ~ "#CC6677",    # If 'output' and y < 0, color red
+    grepl("output", source) & rotation_mean >= 0 ~ "#009E73", # If 'output' and y >= 0, color green
+    TRUE ~ NA_character_                # Default case, if no condition is met
+  ))
+
+# Create a new column for shape based on the conditions
+CO_df_2 <- CO_df_2 %>%
+  dplyr::mutate(pointshape = case_when(
+    source == 'output' ~ 3,  # Cross symbol
+    grepl('cost', source) ~ 16, # solid circle
+    TRUE ~ 1  # Default to a Circle symbol for other cases
+  ))
+
+# North
+CO_north <- ggplot(CO_df_2 %>% dplyr::filter(region == "north"),
+       aes(x = source, y = rotation_mean)) +
+  geom_point(aes(shape = factor(pointshape), color = color, size = 3)) +  # Shape and color aesthetics
+  scale_shape_manual(values = c(3, 16)) +  # Cross (3) and Circle (16)
+  scale_color_identity() +  # Use the color column directly
+  facet_grid(soiltype ~ initDR,
+             labeller = labeller(soiltype = soiltype.labs, initDR = denres.labs)
+             )  +
+  labs(x = "Output and costs", 
+       y = expression(atop("Mean annual difference between",
+                           paste("scenarios (MIT-BAU) (£ / ha)")))
+       ) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.title.x = element_blank(),
+        #axis.text.x = element_blank(),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "none",
+        tag.text = element_text(size=22)
+        #strip.placement = 'outside',
+        )
+
+# Central
+CO_central <- ggplot(CO_df_2 %>% dplyr::filter(region == "central"),
+       aes(x = source, y = rotation_mean)) +
+  geom_point(aes(shape = factor(pointshape), color = color, size = 3)) +  # Shape and color aesthetics
+  scale_shape_manual(values = c(3, 16)) +  # Cross (3) and Circle (1)
+  scale_color_identity() +  # Use the color column directly
+  facet_grid(soiltype ~ initDR,
+             labeller = labeller(soiltype = soiltype.labs, initDR = denres.labs)
+             )  +
+  labs(x = "Output and costs", 
+       y = expression(atop("Mean annual difference between",
+                           paste("scenarios (MIT-BAU) (£ / ha)")))
+       ) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.title.x = element_blank(),
+        #axis.text.x = element_blank(),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "none",
+        tag.text = element_text(size=22)#,
+        #strip.placement = 'outside',
+        )
+
+# East
+CO_east <- ggplot(CO_df_2 %>% dplyr::filter(region == "east"),
+       aes(x = source, y = rotation_mean)) +
+  geom_point(aes(shape = factor(pointshape), color = color, size = 3)) +  # Shape and color aesthetics
+  scale_shape_manual(values = c(3, 16)) +  # Cross (3) and Circle (1)
+  scale_color_identity() +  # Use the color column directly
+  facet_grid(soiltype ~ initDR,
+             labeller = labeller(soiltype = soiltype.labs, initDR = denres.labs)
+             )  +
+  labs(x = "Output and costs", 
+       y = expression(atop("Mean annual difference between",
+                           paste("scenarios (MIT-BAU) (£ / ha)")))
+       ) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        #axis.title.x = element_blank(),
+        #axis.text.x = element_blank(),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "none",
+        tag.text = element_text(size=22)#,
+        #strip.placement = 'outside',
+        )
+
+
+# Combine
+CO_1col <- CO_north + CO_central + CO_east + plot_layout(ncol = 1) +
+  plot_annotation(
+    tag_levels = list(c("(a) North", "(b) Central" , "(c) East")),
+    tag_prefix = '',  
+    tag_suffix = ''
+    ) & 
+  theme(plot.tag = element_text(size = 22, face="bold"))
+```
+
+
+
+
+
+### 6.3.4. Save plot
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/??.png",
+#     height = 30, width = 10, units = "in", res = 300)
+# print(facetpanel_1col)
+# dev.off()
+
+pdf("../figures/costs_and_output_1col", height = 30, width = 10)
+print(CO_1col)
+dev.off()
+```
+
+
+
+
+
+
+
+
 # Cite packages
 ```{r}
 cite_packages(citation.style = "nature", out.dir = ".")
@@ -2059,4 +2601,335 @@ Active ingredients per year doesn't change much overall (mean goes down with inc
 ```{r}
 unique(strat$design_element)
 ```
+
+
+## Costs and output plots
+Now plot output and total costs for comparison:
+A -ve value means MIT wins (green = MIT wins, orange = MIT loses) 
+```{r}
+# north ----
+output_north <- ggplot(sources_of_costs %>% 
+                           dplyr::filter(region == "north" & grepl("output", source_of_cost_difference)),
+               aes(source_of_cost_difference, rotation_mean, colour = rotation_mean > 0)) + 
+  scale_colour_manual(values = c("#CC6677", "#009E73"), 
+                      labels = c("MIT loses", "MIT wins")) +
+  facet_grid(soiltype ~ initDR, 
+             labeller = labeller(soiltype = soiltype.labs, initDR = denres.labs)
+             ) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Source of costs", 
+       y = expression(atop("Mean annual difference in costs",
+                           paste("between scenarios (MIT-BAU) (£ / ha)")))
+       ) +
+  geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "none",
+        tag.text = element_text(size=22)
+        )
+
+
+# central ----
+output_central <- ggplot(sources_of_costs %>% 
+                           dplyr::filter(region == "central" & grepl("output", source_of_cost_difference)),
+               aes(source_of_cost_difference, rotation_mean, colour = rotation_mean > 0)) + 
+  scale_colour_manual(values = c("#CC6677", "#009E73"), 
+                      labels = c("MIT loses", "MIT wins")) +
+  facet_grid(soiltype ~ initDR,
+             labeller = labeller(soiltype = soiltype.labs, 
+                                 initDR = denres.labs)
+             ) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Source of costs", 
+       y = expression(atop("Mean annual difference in costs",
+                           paste("between scenarios (MIT-BAU) (£ / ha)")))
+       #y = expression("Difference in costs between scenarios (MIT-BAU) (£ / ha)")
+       ) +
+  geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "none"
+        ) 
+
+
+# east ----
+output_east <- ggplot(sources_of_costs %>% 
+                           dplyr::filter(region == "east" & grepl("output", source_of_cost_difference)),
+               aes(source_of_cost_difference, rotation_mean, colour = rotation_mean > 0)) + 
+  scale_colour_manual(values = c("#CC6677", "#009E73"), 
+                      labels = c("MIT loses", "MIT wins")) +
+  facet_grid(soiltype ~ initDR,
+             labeller = labeller(soiltype = soiltype.labs, 
+                                 initDR = denres.labs)
+             ) +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Source of costs", 
+       y = expression(atop("Mean annual difference in costs",
+                           paste("between scenarios (MIT-BAU) (£ / ha)")))
+       #y = expression("Difference in costs between scenarios (MIT-BAU) (£ / ha)")
+       ) +
+  geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "bottom"
+        ) 
+
+
+
+# combine
+output_1col <- output_north + output_central + output_east + plot_layout(ncol = 1) +
+  plot_annotation(
+    #tag_levels = 'a', 
+    tag_levels = list(c("(a) North", "(b) Central" , "(c) East")),
+    tag_prefix = '',  
+    tag_suffix = ''
+    ) & 
+  theme(plot.tag = element_text(size = 22, face="bold"))
+```
+
+Save plot.
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/plot_all_outcomes_1col.png",
+#     height = 30, width = 10, units = "in", res = 300)
+# print(facetpanel_1col)
+# dev.off()
+
+pdf("../figures/output_1col.pdf", height = 30, width = 10)
+print(output_1col)
+dev.off()
+```
+
+
+
+
+
+
+Plot again but include output this time.
+For output, a +ve value means MIT wins.
+For costs, a -ve value means MIT wins (green = MIT wins, orange = MIT loses) 
+```{r}
+# # Specify colours
+# sources_of_costs <- sources_of_costs %>%
+#   dplyr::mutate(color = case_when(
+#     grepl("costs", source_of_cost_difference) & rotation_mean <= 0 ~ "#009E73",  # If 'costs' and y <= 0, color green
+#     grepl("costs", source_of_cost_difference) & rotation_mean > 0  ~ "#CC6677",    # If 'costs' and y > 0, color red
+#     grepl("output", source_of_cost_difference) & rotation_mean < 0 ~ "#CC6677",    # If 'output' and y < 0, color red
+#     grepl("output", source_of_cost_difference) & rotation_mean >= 0 ~ "#009E73", # If 'output' and y >= 0, color green
+#     TRUE ~ NA_character_                # Default case, if no condition is met
+#   ))
+# 
+# 
+# 
+# # north ----
+# costoutput_sources_n_1col <- ggplot(sources_of_costs %>% 
+#                            dplyr::filter(region == "north"),
+#                aes(source_of_cost_difference, rotation_mean, colour = color)) + 
+#   scale_colour_identity() +
+#   facet_grid(soiltype ~ initDR, 
+#              labeller = labeller(soiltype = soiltype.labs, initDR = denres.labs)#,
+#              #scales="free_y"
+#              ) +
+#   scale_x_discrete(guide = guide_axis(angle = 45)) +
+#   labs(x = "Source of costs", 
+#        y = expression(atop("Mean annual difference in output",
+#                            paste("and costs between scenarios (MIT-BAU) (£ / ha)"))) 
+#        #y = expression("Difference in output and costs between scenarios (MIT-BAU) (£ / ha)")
+#        ) +
+#   geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
+#                   position=position_dodge(width=0.3),
+#                   size = 0.9) +
+#   geom_hline(yintercept=0, linetype="dashed", color = "black") +
+#   theme_bw() + 
+#   theme(strip.placement = 'outside',
+#         strip.text.x = element_text(size = 22),
+#         strip.text.y = element_text(size = 22),
+#         axis.title=element_text(size=24),
+#         axis.title.x = element_blank(),
+#         axis.text.x = element_blank(),
+#         axis.text.y=element_text(size=rel(2.2)),
+#         legend.text=element_text(size=22),
+#         legend.title = element_blank(),
+#         legend.position = "none",
+#         tag.text = element_text(size=22)
+#         )
+# 
+# 
+# # central ----
+# costoutput_sources_c_1col <- ggplot(sources_of_costs %>% 
+#                            dplyr::filter(region == "central"),
+#                aes(source_of_cost_difference, rotation_mean, colour = color)) + 
+#   scale_colour_identity() +
+#   facet_grid(soiltype ~ initDR,
+#              labeller = labeller(soiltype = soiltype.labs, 
+#                                  initDR = denres.labs)
+#              ) +
+#   scale_x_discrete(guide = guide_axis(angle = 45)) +
+#   labs(x = "Source of costs", 
+#        y = expression(atop("Mean annual difference in output",
+#                            paste("and costs between scenarios (MIT-BAU) (£ / ha)"))) 
+#        #y = expression("Difference in output and costs between scenarios (MIT-BAU) (£ / ha)")
+#        ) +
+#   geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
+#                   position=position_dodge(width=0.3),
+#                   size = 0.9) +
+#   geom_hline(yintercept=0, linetype="dashed", color = "black") +
+#   theme_bw() + 
+#   theme(strip.placement = 'outside',
+#         strip.text.x = element_text(size = 22),
+#         strip.text.y = element_text(size = 22),
+#         axis.title=element_text(size=24),
+#         axis.title.x = element_blank(),
+#         axis.text.x = element_blank(),
+#         axis.text.y=element_text(size=rel(2.2)),
+#         legend.text=element_text(size=22),
+#         legend.title = element_blank(),
+#         legend.position = "none"
+#         ) 
+# 
+# 
+# # east ----
+# costoutput_sources_e_1col <- ggplot(sources_of_costs %>% 
+#                            dplyr::filter(region == "east"),
+#                aes(source_of_cost_difference, rotation_mean, colour = color)) + 
+#   scale_colour_identity() +
+#   facet_grid(soiltype ~ initDR,
+#              labeller = labeller(soiltype = soiltype.labs, 
+#                                  initDR = denres.labs)
+#              ) +
+#   scale_x_discrete(guide = guide_axis(angle = 45)) +
+#   labs(x = "Source of costs", 
+#        y = expression(atop("Mean annual difference in output",
+#                            paste("and costs between scenarios (MIT-BAU) (£ / ha)"))) 
+#        #y = expression("Difference in output and costs between scenarios (MIT-BAU) (£ / ha)")
+#        ) +
+#   geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
+#                   position=position_dodge(width=0.3),
+#                   size = 0.9) +
+#   geom_hline(yintercept=0, linetype="dashed", color = "black") +
+#   theme_bw() + 
+#   theme(strip.placement = 'outside',
+#         strip.text.x = element_text(size = 22),
+#         strip.text.y = element_text(size = 22),
+#         axis.title=element_text(size=24),
+#         axis.text.x=element_text(size=rel(2.2)),
+#         axis.text.y=element_text(size=rel(2.2)),
+#         legend.text=element_text(size=22),
+#         legend.title = element_blank(),
+#         legend.position = "bottom"
+#         ) 
+# 
+# 
+# 
+# # combine
+# costoutput_sources_1col <- costoutput_sources_n_1col + costoutput_sources_c_1col + costoutput_sources_e_1col + plot_layout(ncol = 1) +
+#   plot_annotation(
+#     #tag_levels = 'a', 
+#     tag_levels = list(c("(a) North", "(b) Central" , "(c) East")),
+#     tag_prefix = '',  
+#     tag_suffix = ''
+#     ) & 
+#   theme(plot.tag = element_text(size = 22, face="bold"))
+```
+
+
+
+Save plot.
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/plot_all_outcomes_1col.png",
+#     height = 30, width = 10, units = "in", res = 300)
+# print(facetpanel_1col)
+# dev.off()
+
+# pdf("../figures/costs-output_sources_1col.pdf", height = 30, width = 10)
+# print(costoutput_sources_1col)
+# dev.off()
+```
+
+
+
+Plot again, but include output mean (without the max and min) this time.
+For output, a +ve value means MIT wins.
+For costs, a -ve value means MIT wins (green = MIT wins, orange = MIT loses) 
+```{r}
+# # First, replace output min and max with NA
+# # Replace values in columns B and C with NA where A is 'output'
+# sources_of_costs_2 <- sources_of_costs %>%
+#   dplyr::mutate(
+#     rotation_min = ifelse(source_of_cost_difference == "output", NA, rotation_min),
+#     rotation_max = ifelse(source_of_cost_difference == "output", NA, rotation_max)
+#   )
+# 
+# 
+# # Create a new column to specify colours
+# sources_of_costs_2 <- sources_of_costs_2 %>%
+#   dplyr::mutate(color = case_when(
+#     grepl("costs", source_of_cost_difference) & rotation_mean <= 0 ~ "#009E73",  # If 'costs' and y <= 0, color green
+#     grepl("costs", source_of_cost_difference) & rotation_mean > 0  ~ "#CC6677",    # If 'costs' and y > 0, color red
+#     grepl("output", source_of_cost_difference) & rotation_mean < 0 ~ "#CC6677",    # If 'output' and y < 0, color red
+#     grepl("output", source_of_cost_difference) & rotation_mean >= 0 ~ "#009E73", # If 'output' and y >= 0, color green
+#     TRUE ~ NA_character_                # Default case, if no condition is met
+#   ))
+# 
+# 
+# 
+# # Create a new column for shape based on the conditions
+# sources_of_costs_2 <- sources_of_costs_2 %>%
+#   dplyr::mutate(pointshape = case_when(
+#     source_of_cost_difference == 'output' ~ 3,  # Cross symbol
+#     grepl('cost', source_of_cost_difference) ~ 16, # solid circle
+#     TRUE ~ 1  # Default to a Circle symbol for other cases
+#   ))
+# 
+# 
+# 
+# ggplot(sources_of_costs_2 %>% dplyr::filter(region == "north"),
+#        aes(x = source_of_cost_difference, y = rotation_mean)) +
+#   geom_point(aes(shape = factor(pointshape), color = color)) +  # Shape and color aesthetics
+#   # geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max, color = color), 
+#   #                 position=position_dodge(width=0.3),
+#   #                 size = 0.9) +
+#   scale_shape_manual(values = c(3, 16)) +  # Cross (3) and Circle (1)
+#   scale_color_identity() +  # Use the color column directly
+#   facet_grid(soiltype ~ initDR, 
+#              labeller = labeller(soiltype = soiltype.labs, initDR = denres.labs)#,
+#              #scales="free_y"
+#              ) 
+# 
+```
+
+
+
+
 
