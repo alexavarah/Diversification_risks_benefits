@@ -1394,21 +1394,21 @@ max_cost_diff_df <- cost_differences %>%
 # Join data frames
 sources_of_costs <- dplyr::left_join(mean_cost_diff_df, min_cost_diff_df, by = c("region", "soiltype", "initDR", "source_of_cost_difference")) %>% 
   dplyr::left_join(., max_cost_diff_df, by = c("region", "soiltype", "initDR", "source_of_cost_difference")) %>% 
-  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'cyl', 'lost yield costs'))) %>%
-  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'herb', 'herbicide costs'))) %>%
-  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'ops', 'operations costs'))) %>%
-  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'fert', 'fertiliser costs'))) %>% 
-  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'seed', 'seed costs'))) %>% 
-  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'sundry', 'sundry costs'))) %>% 
+  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'cyl', 'lost yield'))) %>%
+  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'herb', 'herbicide'))) %>%
+  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'ops', 'operations'))) %>%
+  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'fert', 'fertiliser'))) %>% 
+  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'seed', 'seed'))) %>% 
+  dplyr::mutate(across('source_of_cost_difference', ~ str_replace(., 'sundry', 'sundry'))) %>% 
   dplyr::mutate(source_of_cost_difference = factor(source_of_cost_difference,
                                                    levels = c(
                                                      "output",
-                                                     "lost yield costs", 
-                                                     "herbicide costs",
-                                                     "fertiliser costs",
-                                                     "operations costs",
-                                                     "seed costs",
-                                                     "sundry costs")))
+                                                     "lost yield", 
+                                                     "herbicide",
+                                                     "fertiliser",
+                                                     "operations",
+                                                     "seed",
+                                                     "sundry")))
   
 # Tidy up
 rm(mean_cost_diff_df, min_cost_diff_df, max_cost_diff_df)
@@ -1532,7 +1532,7 @@ cost_sources_e_1col <- ggplot(sources_of_costs %>%
 
 
 
-# combine
+# combine ----
 cost_sources_1col <- cost_sources_n_1col + cost_sources_c_1col + cost_sources_e_1col + plot_layout(ncol = 1) +
   plot_annotation(
     #tag_levels = 'a', 
