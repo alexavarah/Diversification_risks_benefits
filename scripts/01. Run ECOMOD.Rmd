@@ -1,0 +1,203 @@
+---
+title: "Run ECOMOD for corrected BAU scenario"
+author: "Alexa Varah"
+date: "2025-03-31"
+output: html_document
+---
+
+# 1. Intro
+
+The previous BAU file had some incorrect specifications. The errors were as follows:  
+1. The prices for fertiliser in the BAU input file were wrong.  
+N price was given as 0.71, P price as 0.44 and K price as 0.46. Now corrected to 0.80, 0.72 and 0.46 respectively.  
+
+2. Some of the tillage for BAU was wrong. 
+C_heavy_L-Dsty.L-Res year 5 had been specified as inversion whereas there was no inversion ploughing on heavy soils in the BAU strategies.
+
+This script re-runs the BAU scenario through ECOMOD.  
+  
+The resistance management paper will therefore have underestimated the BAU costs and so any differences between MIT and BAU will be overestimated. This will need correcting.  
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 2. Load packages & functions
+
+```{r load, purl=FALSE}
+# Load packages
+rm(list = ls(all = TRUE)) # clear envt
+
+install.packages(c("ggplot2", "dplyr", "tidyr", "readr", "purrr", "tibble", "stringr"))
+install.packages("tidyverse")
+library(tidyverse)
+library(readxl) # for reading in Excel workbooks / spreadsheets
+
+# Load functions
+source("functions/ECOMOD_2019 prices_2023-02-07.R")
+```
+
+
+
+# 3. Load and manipulate BAU data
+Make input files.
+```{r load-tidy-BAU}
+# Read in file and sort out a few things initially.
+bau_econdata = read_xlsx("../data/InputData_BAU_ECOMOD&CFT_2025-03-31.xlsx",5) %>% 
+  mutate(soil = as.numeric(soil)) %>% # soil texture should be numeric
+  mutate_at(3, round, 2) %>%  # soil texture needs 2 decimal places
+  # replace density and resistance abbreviations with even shorter forms:
+  mutate(
+    farm_id = gsub('L-Dsty.L-Res', 'LD-LR', farm_id), 
+    farm_id = gsub('L-Dsty.H-Res', 'LD-HR', farm_id),
+    farm_id = gsub('H-Dsty.H-Res', 'HD-HR', farm_id),
+    farm_id = gsub('\\.', '_', farm_id), # replace . with _
+  )
+
+# Insert the additional scenarios that Rob G can run. 
+# He can differentiate all density states.
+# LD-LR becomes LD-LR and MD-LR
+# LD-HR becomes LD-HR and MD-HR
+# HD-HR becomes HD-HR and VD-HR
+
+# create new rows to be added
+#insert.df <- transform(bau_econdata, elevation = elevation - length)
+
+bau_insert.df <- bau_econdata %>% 
+  mutate(
+    farm_id = gsub('LD-LR', 'MD-LR', farm_id), # replace LD-LR with MD-LR
+    farm_id = gsub('LD-HR', 'MD-HR', farm_id),
+    farm_id = gsub('HD-HR', 'VD-HR', farm_id)
+  )
+    
+# join the two data frames
+bau_out.df <- rbind(bau_econdata, bau_insert.df)
+
+# re-order so that new rows are inserted every other row
+n <- nrow(bau_econdata)
+bau_econ.input.data <- bau_out.df[kronecker(1:n, c(0, n), "+"), ]
+
+## Create input files for each black-grass density state
+
+# LOW / ABSENT
+bau_l <- bau_econ.input.data %>%
+  mutate(across(starts_with('blackgrass'), ~replace(., . %in% c("medium","high","veryhigh"), "low"))) %>%
+  data.frame()
+
+# MEDIUM
+bau_m <- bau_l %>%
+  mutate(across(starts_with('blackgrass'), ~replace(., . %in% "low", "medium"))) %>% 
+  data.frame()
+
+# HIGH
+bau_h = bau_m %>%
+  mutate(across(starts_with('blackgrass'), ~replace(., . %in% "medium", "high"))) %>% 
+  data.frame()
+
+# VERY HIGH
+bau_v = bau_h %>%
+  mutate(across(starts_with('blackgrass'), ~replace(., . %in% "high", "veryhigh"))) %>% 
+  data.frame()
+```
+
+# 4. Run ECOMOD
+```{r runECOMOD-BAU}
+
+# 4.1. Run ECOMOD - LOW / ABSENT density ----
+fn = "../output/bau_ECOMOD_output_L.csv" # name the output file
+fd = bau_l
+fd$soil = as.numeric(format(round(as.numeric(fd$soil), 2), nsmall = 2))
+
+# Run ECOMOD
+mfm = solve_BGRI_ECOMOD(filename=fn,
+                        farmdata=fd,
+                        default=NULL,farm="multiple",soil=2.5,
+                        rotlength=6,rotprob=1/6,
+                        crops,tillages,seedrate,delsowing,Nfert,Pfert,Kfert,
+                        bgherbdose,glyphosatedose,numberofsprays,subsidy="yes",
+                        blackgrass,cropprice,cropyield,yieldoption="estimate",
+                        Nfertprice,Pfertprice,Kfertprice,seedprice,
+                        herbprice,glyphosateprice,machsize,fuelprice,labourwage)
+rm(fn)
+rm(fd)
+rm(mfm)
+
+
+# //////////////////////////////////////////////////////////////////////////////
+# 4.2. Run ECOMOD - MEDIUM density ----
+
+fn = "../output/bau_ECOMOD_output_M.csv" # name the output file
+fd = bau_m
+fd$soil = as.numeric(format(round(as.numeric(fd$soil), 2), nsmall = 2))
+
+# Run ECOMOD
+mfm = solve_BGRI_ECOMOD(filename=fn,
+                        farmdata=fd,
+                        default=NULL,farm="multiple",soil=2.5,
+                        rotlength=6,rotprob=1/6,
+                        crops,tillages,seedrate,delsowing,Nfert,Pfert,Kfert,
+                        bgherbdose,glyphosatedose,numberofsprays,subsidy="yes",
+                        blackgrass,cropprice,cropyield,yieldoption="estimate",
+                        Nfertprice,Pfertprice,Kfertprice,seedprice,
+                        herbprice,glyphosateprice,machsize,fuelprice,labourwage)
+rm(fn)
+rm(fd)
+rm(mfm)
+
+
+# //////////////////////////////////////////////////////////////////////////////
+# 4.3. Run ECOMOD - HIGH density
+
+fn = "../output/bau_ECOMOD_output_H.csv" # name the output file
+fd = bau_h
+fd$soil = as.numeric(format(round(as.numeric(fd$soil), 2), nsmall = 2))
+
+# Run ECOMOD
+mfm = solve_BGRI_ECOMOD(filename=fn,
+                        farmdata=fd,
+                        default=NULL,farm="multiple",soil=2.5,
+                        rotlength=6,rotprob=1/6,
+                        crops,tillages,seedrate,delsowing,Nfert,Pfert,Kfert,
+                        bgherbdose,glyphosatedose,numberofsprays,subsidy="yes",
+                        blackgrass,cropprice,cropyield,yieldoption="estimate",
+                        Nfertprice,Pfertprice,Kfertprice,seedprice,
+                        herbprice,glyphosateprice,machsize,fuelprice,labourwage)
+rm(fn)
+rm(fd)
+rm(mfm)
+
+
+# //////////////////////////////////////////////////////////////////////////////
+# 4.4. Run ECOMOD - VERY HIGH density
+
+fn = "../output/bau_ECOMOD_output_V.csv" # name the output file
+fd = bau_v
+fd$soil = as.numeric(format(round(as.numeric(fd$soil), 2), nsmall = 2))
+
+# Run ECOMOD
+mfm = solve_BGRI_ECOMOD(filename=fn,
+                        farmdata=fd,
+                        default=NULL,farm="multiple",soil=2.5,
+                        rotlength=6,rotprob=1/6,
+                        crops,tillages,seedrate,delsowing,Nfert,Pfert,Kfert,
+                        bgherbdose,glyphosatedose,numberofsprays,subsidy="yes",
+                        blackgrass,cropprice,cropyield,yieldoption="estimate",
+                        Nfertprice,Pfertprice,Kfertprice,seedprice,
+                        herbprice,glyphosateprice,machsize,fuelprice,labourwage)
+rm(fn)
+rm(fd)
+rm(mfm)
+```
+
+## 4.5. Clean up
+```{r BAU-clean-up}
+rm(bau_l)
+rm(bau_m)
+rm(bau_h)
+rm(bau_v)
+rm(bau_econdata)
+rm(bau_insert.df)
+rm(bau_out.df)
+rm(bau_econ.input.data)
+rm(n)
+```
