@@ -228,7 +228,7 @@ trdoff_rot <- c_gp_yld %>%
 
 
 
-### 3.2.3. Weed density ((a) rotation mean density and (b) proportion h & vh in year 6)
+### 3.2.2. Weed density ((a) rotation mean density and (b) proportion h & vh in year 6)
 ```{r, attr.source='.numberLines'}
 rm(density_rot)
 density_rot <- res_tidy %>%
@@ -996,8 +996,9 @@ Could switch the sign on opportunity costs (would then be BAU-MIT) so that for b
 
   
   
-### 5.3.2. Create panel plots
+### 5.3.2. With region on top panels
 
+Plot.
 ```{r, echo=FALSE}
 # Specify panel labels
 region.labs <- c("Northern England", "Central England", "Eastern England") # new
@@ -1104,7 +1105,9 @@ facetpanel_1col <- a_oc_1col + b_cal_1col + c_ghg_1col + plot_layout(ncol = 1) +
 ```
 
 
-Save plot.
+
+
+Save.
 ```{r, echo=FALSE, eval = FALSE}
 # png("../figures/plot_all_outcomes_1col.png",
 #     height = 30, width = 10, units = "in", res = 300)
@@ -1113,6 +1116,139 @@ Save plot.
 
 pdf("../figures/plot_all_outcomes_1col.pdf", height = 30, width = 10)
 print(facetpanel_1col)
+dev.off()
+```
+
+
+
+
+
+### 5.3.3. With initial conditions on top panels
+
+Plot.
+```{r, echo=FALSE}
+# Specify panel labels
+denres.labs <- c("LD-LR", "LD-HR", "HD-HR") # new
+names(denres.labs) <- c("LD-LR", "LD-HR", "HD-HR") # original
+
+soiltype.labs <- c("Heavy soil", "Medium soil", "Light soil") # new
+names(soiltype.labs) <- c("heavy", "medium", "light") # original
+
+# Plot
+## opp costs ----
+a_oc_alt <- ggplot(trdoff_rot %>% 
+                     dplyr::filter(scenario == "MIT") %>% 
+                             dplyr::mutate(region = fct_recode(region, N = "north", C = "central", E = "east")), 
+               aes(region, oc_mean, colour = oc_mean < 0)) + 
+  scale_colour_manual(values = c("#44AA99", "#CC6677"),
+                      labels = c("MIT wins", "MIT loses")) +
+  facet_grid(soiltype ~ initDR,
+             labeller = labeller(soiltype = soiltype.labs, initDR = denres.labs),
+             scales="free_y"
+             ) +
+  #scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "English region", 
+       y = "Mean annual difference in gross profit (£/ha)") +
+  geom_pointrange(aes(ymin = oc_min, ymax = oc_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        #axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "none",
+        tag.text = element_text(size=22)
+        ) 
+
+## yield ----
+b_cal_alt <- ggplot(trdoff_rot %>% 
+                     dplyr::filter(scenario == "MIT") %>% 
+                             dplyr::mutate(region = fct_recode(region, N = "north", C = "central", E = "east")), 
+               aes(region, calories_diff_mean, colour = calories_diff_mean < 0)) + 
+  scale_colour_manual(values = c("#44AA99", "#CC6677"),
+                      labels = c("MIT wins", "MIT loses")) +
+  facet_grid(soiltype ~ initDR,
+             labeller = labeller(soiltype = soiltype.labs, initDR = denres.labs),
+             scales="free_y"
+             ) +
+  #scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "English region", 
+       y = "Mean annual difference in calories produced (kcal/ha)") +
+  geom_pointrange(aes(ymin = calories_diff_min, ymax = calories_diff_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        #axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "none"
+        )
+
+## GHG emissions ----
+c_ghg_alt <- ggplot(trdoff_rot %>% 
+                     dplyr::filter(scenario == "MIT") %>% 
+                             dplyr::mutate(region = fct_recode(region, N = "north", C = "central", E = "east")), 
+               aes(region, c_emiss_diff_mean, colour = c_emiss_diff_mean > 0)) + 
+    scale_colour_manual(values = c("#44AA99", "#CC6677"),
+                      labels = c("MIT wins", "MIT loses")) +
+  facet_grid(soiltype ~ initDR,
+             labeller = labeller(soiltype = soiltype.labs, 
+                                 initDR = denres.labs)) +
+  #scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "English region", 
+       y = expression("Mean annual difference in GHG emissions (kgCO"["2"]~"eq/ha)"),
+             scales="free_y"
+             ) +
+  geom_pointrange(aes(ymin = c_emiss_diff_min, ymax = c_emiss_diff_max), 
+                  position=position_dodge(width=0.3),
+                  size = 0.9) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+  theme(strip.placement = 'outside',
+        strip.text.x = element_text(size = 22),
+        strip.text.y = element_text(size = 22),
+        axis.title=element_text(size=24),
+        axis.text.x=element_text(size=rel(2.2)),
+        axis.text.y=element_text(size=rel(2.2)),
+        legend.text=element_text(size=22),
+        legend.title = element_blank(),
+        legend.position = "bottom"
+        )
+
+# Combine plots ----
+facetpanel_denres_top <- a_oc_alt + b_cal_alt + c_ghg_alt + plot_layout(ncol = 1) +
+  plot_annotation(tag_levels = 'a', tag_prefix = '(',  tag_suffix = ')') & 
+  theme(plot.tag = element_text(size = 22, face="bold"))
+```
+
+
+
+
+Save.
+```{r, echo=FALSE, eval = FALSE}
+# png("../figures/plot_all_outcomes_1col.png",
+#     height = 30, width = 10, units = "in", res = 300)
+# print(facetpanel_1col)
+# dev.off()
+
+pdf("../figures/plot_all_outcomes_1col_denres-top.pdf", height = 30, width = 10)
+print(facetpanel_denres_top)
 dev.off()
 ```
 
@@ -1288,7 +1424,7 @@ Operation cost (£/ha) = Fuel cost + Labour cost
   
 Use costs for herbicide, fertiliser, operations, seed, sundry. Also costs due to yield loss.  
 ```{r}
-rm(cost_differences)
+#rm(cost_differences)
 cost_differences <- c_gp_yld %>% 
 
 # 1. Calculate difference between MIT and BAU
@@ -1455,7 +1591,8 @@ cost_sources_n_1col <- ggplot(sources_of_costs %>%
         strip.text.y = element_text(size = 22),
         axis.title=element_text(size=24),
         axis.title.x = element_blank(),
-        axis.text.x = element_blank(),
+        #axis.text.x = element_blank(),
+        axis.text.x=element_text(size=rel(2.2)),
         axis.text.y=element_text(size=rel(2.2)),
         legend.text=element_text(size=22),
         legend.title = element_blank(),
@@ -1488,9 +1625,11 @@ cost_sources_c_1col <- ggplot(sources_of_costs %>%
   theme(strip.placement = 'outside',
         strip.text.x = element_text(size = 22),
         strip.text.y = element_text(size = 22),
-        axis.title=element_text(size=24),
+        axis.title = element_text(size=24),
         axis.title.x = element_blank(),
-        axis.text.x = element_blank(),
+        #axis.text.x = element_blank(),
+        axis.text.x=element_text(size=rel(2.2)),
+        axis.title.y = element_blank(),
         axis.text.y=element_text(size=rel(2.2)),
         legend.text=element_text(size=22),
         legend.title = element_blank(),
@@ -1532,11 +1671,32 @@ cost_sources_e_1col <- ggplot(sources_of_costs %>%
 
 
 
-# combine ----
+# combine vertical ----
 cost_sources_1col <- cost_sources_n_1col + cost_sources_c_1col + cost_sources_e_1col + plot_layout(ncol = 1) +
   plot_annotation(
     #tag_levels = 'a', 
     tag_levels = list(c("(a) North", "(b) Central" , "(c) East")),
+    tag_prefix = '',  
+    tag_suffix = ''
+    ) & 
+  theme(plot.tag = element_text(size = 22, face="bold"))
+
+
+# combine horizontal ----
+cost_sources_3col <- cost_sources_n_1col + cost_sources_c_1col + cost_sources_e_1col + plot_layout(ncol = 2) +
+  plot_annotation(
+    #tag_levels = 'a', 
+    tag_levels = list(c("(a) N", "(b) C" , "(c) E")),
+    tag_prefix = '',  
+    tag_suffix = ''
+    ) & 
+  theme(plot.tag = element_text(size = 22, face="bold"))
+
+# combine square ----
+cost_sources_2col <- cost_sources_n_1col + cost_sources_c_1col + cost_sources_e_1col + plot_layout(ncol = 2, nrow = 2) +
+  plot_annotation(
+    #tag_levels = 'a', 
+    tag_levels = list(c("N", "C" , "E")),
     tag_prefix = '',  
     tag_suffix = ''
     ) & 
@@ -1556,6 +1716,15 @@ cost_sources_1col <- cost_sources_n_1col + cost_sources_c_1col + cost_sources_e_
 
 pdf("../figures/costs-only_sources_1col.pdf", height = 30, width = 10)
 print(cost_sources_1col)
+dev.off()
+
+
+pdf("../figures/costs-only_sources_3col.pdf", height = 10, width = 30)
+print(cost_sources_3col)
+dev.off()
+
+pdf("../figures/costs-only_sources_2col.pdf", height = 25, width = 20)
+print(cost_sources_2col)
 dev.off()
 ```
 
@@ -1714,14 +1883,15 @@ CO_north <- ggplot(CO_df_2 %>% dplyr::filter(region == "north"),
   theme_bw() + 
   theme(strip.text.x = element_text(size = 22),
         strip.text.y = element_text(size = 22),
-        axis.title=element_text(size=24),
+        axis.title = element_text(size = 24),
         axis.title.x = element_blank(),
-        #axis.text.x = element_blank(),
-        axis.text.y=element_text(size=rel(2.2)),
-        legend.text=element_text(size=22),
+        axis.text.x = element_blank(),
+        #axis.text.x = element_text(size=rel(2.2)),
+        axis.text.y = element_text(size=rel(2.2)),
+        legend.text = element_text(size = 22),
         legend.title = element_blank(),
         legend.position = "none",
-        tag.text = element_text(size=22)
+        tag.text = element_text(size = 22)
         #strip.placement = 'outside',
         )
 
@@ -1742,14 +1912,15 @@ CO_central <- ggplot(CO_df_2 %>% dplyr::filter(region == "central"),
   theme_bw() + 
   theme(strip.text.x = element_text(size = 22),
         strip.text.y = element_text(size = 22),
-        axis.title=element_text(size=24),
+        axis.title = element_text(size = 24),
         axis.title.x = element_blank(),
-        #axis.text.x = element_blank(),
-        axis.text.y=element_text(size=rel(2.2)),
-        legend.text=element_text(size=22),
+        axis.text.x = element_blank(),
+        #axis.text.x = element_text(size=rel(2.2)),
+        axis.text.y = element_text(size=rel(2.2)),
+        legend.text = element_text(size = 22),
         legend.title = element_blank(),
         legend.position = "none",
-        tag.text = element_text(size=22)#,
+        tag.text = element_text(size = 22)#,
         #strip.placement = 'outside',
         )
 
@@ -1762,7 +1933,8 @@ CO_east <- ggplot(CO_df_2 %>% dplyr::filter(region == "east"),
   facet_grid(soiltype ~ initDR,
              labeller = labeller(soiltype = soiltype.labs, initDR = denres.labs)
              )  +
-  labs(x = "Output and costs", 
+  scale_x_discrete(guide = guide_axis(angle = 45)) +
+  labs(x = "Income (farm output) and expenditure (costs)", 
        y = expression(atop("Mean annual difference between",
                            paste("scenarios (MIT-BAU) (£ / ha)")))
        ) +
@@ -1773,7 +1945,8 @@ CO_east <- ggplot(CO_df_2 %>% dplyr::filter(region == "east"),
         axis.title=element_text(size=24),
         #axis.title.x = element_blank(),
         #axis.text.x = element_blank(),
-        axis.text.y=element_text(size=rel(2.2)),
+        axis.text.x = element_text(size=rel(2.2)),
+        axis.text.y = element_text(size=rel(2.2)),
         legend.text=element_text(size=22),
         legend.title = element_blank(),
         legend.position = "none",
@@ -1803,7 +1976,7 @@ CO_1col <- CO_north + CO_central + CO_east + plot_layout(ncol = 1) +
 # print(facetpanel_1col)
 # dev.off()
 
-pdf("../figures/costs_and_output_1col", height = 30, width = 10)
+pdf("../figures/costs_and_output_1col.pdf", height = 30, width = 10)
 print(CO_1col)
 dev.off()
 ```
