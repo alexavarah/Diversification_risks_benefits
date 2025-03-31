@@ -6,26 +6,15 @@ output: html_document
 ---
 
 
-# 1. Load packages and data
-
-```{r setup}
-#knitr::opts_chunk$set(echo = TRUE) #causes your code to be included in the knitted document
-```
-
-## 1.1. Load packages
+# 1. Load packages and functions
 ```{r}
 rm(list = ls(all = TRUE)) # clear envt
+
 library(tidyverse)
-#library(viridis)
-#library(ggtext)
+
+source("functions/Count_complete_observations.R")
 ```
 
-
-## 1.2. Load functions
-Function to count complete observations.
-```{r load-functions}
-nobs <- function(x) length(x[!is.na(x)])
-```
 
 # 2. Load & tidy data
 
@@ -36,9 +25,9 @@ We ran the Cool Farm Tool on three initial density-resistance levels. ECOMOD out
 
 ```{r}
 # Yield and gross profit estimates
-weighted_curr <- readRDS("../data/weighted-gp-yield-oc_orig.rds") %>% 
+weighted_curr <- readRDS("../output/weighted-gp-yield-oc.rds") %>% 
   dplyr::mutate(
-    scenario = factor(scenario, levels=c("BAU", "MIT", "CWW")),
+    scenario = factor(scenario, levels=c("BAU", "MIT")),
     region = forcats::fct_recode(region,
                                   "north" = "n", # new, old
                                   "central" = "c", 
@@ -63,8 +52,6 @@ weighted_curr <- readRDS("../data/weighted-gp-yield-oc_orig.rds") %>%
     ID == 'MIT_e_l_VD-HR_5' ~ 'springoats',
     ID == 'MIT_e_l_HD-HR_5' ~ 'springoats',
     TRUE ~ as.character (crop))) %>% 
-  dplyr::filter(!scenario=="CWW") %>% 
-  droplevels() %>%
   dplyr::ungroup() 
 
 # Carbon emissions estimates
