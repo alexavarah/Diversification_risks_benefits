@@ -54,7 +54,7 @@ library(forcats)
 
 # Load functions
 source("functions/Count_complete_observations.R")
-source("functions/Annotate_plots.R")
+#source("functions/Annotate_plots.R")
 ```
 
 ## 2.2. Load data
