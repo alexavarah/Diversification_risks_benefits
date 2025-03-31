@@ -1,0 +1,259 @@
+---
+title: "Superseded from file 5. Analyse trade-offs"
+author: "Alexa Varah"
+date: "2024-05-21"
+output: html_document
+---
+# Superseded
+```{r, echo=false, eval = FALSE}
+econ <- econ_curr %>% 
+  dplyr::select(-c(ID, strategy)) %>% 
+  dplyr::mutate(ID = paste(region, soiltype, initDR, sep = "_")) %>% 
+  dplyr::relocate(ID)
+
+c_emiss_mit <- c_emiss_diff %>% 
+  dplyr::select(-ID) %>% 
+  dplyr::mutate(
+    region = dplyr::recode(region, # rename levels of 'region'
+                           "north" = "n", #old, new
+                           "central" = "c", #old, new
+                           "east" = "e"), #old, new
+                          region = factor(region, # specify order of levels
+                                          levels = c("n", "c", "e")),
+    soiltype = dplyr::recode(soiltype,  # rename levels of 'soiltype'
+                                                   "heavy" = "h", #old, new
+                                                   "medium" = "m", #old, new
+                                                   "light" = "l"), #old, new
+                          soiltype = factor(soiltype, # specify order of levels
+                                          levels = c("h", "m", "l")),
+    ID = paste(region, soiltype, initDR, sep = "_")
+  ) %>% 
+  dplyr::relocate(ID)
+
+c_gp_diff <- left_join(c_emiss_mit, econ  %>% 
+                    #dplyr::select(c(ID:crop, wtd_yield_mean, wtd_opp_cost_mean)), 
+                    dplyr::select(c(ID:pcmean)) %>% 
+                      dplyr::filter(scenario=="MIT"), 
+                  by=c("ID", "year")) %>% 
+  dplyr::select(-c(scenario.y, region.y, soiltype.y, initDR.y, # remove duplicated columns
+                   fert_prod, fert_appl, pesticide, c_stock_change, 
+                   field_energy_use, total # remove unnecessary columns
+                   )
+                ) %>% 
+  dplyr::rename_at(vars(everything()), ~ sub(".x$", "", .x)) %>% # remove '.x' in column names
+  dplyr::rename_at(vars(everything()), ~ sub("mean", "", .x)) %>% # remove 'mean' in column names
+  dplyr::relocate(crop, .after = year) %>% 
+  dplyr::relocate(initcondit, .after = initDR) 
+
+```
+## Correlations
+
+### MIT
+##### Pearson - MIT, carbon & gross profit
+A correlation coefficient ('cor' in Pearson output and 'r' in Spearman output) greater than 0 indicates a positive association; that is, as the value of one variable increases, so does the value of the other variable. A value less than 0 indicates a negative association; that is, as the value of one variable increases, the value of the other variable decreases. The size of the correlation coefficient reflects the strength of the relationship between the variables.  
+
+When looking at trade-offs for C emissions and gross profit using a correlation test, it matters that both variables don't act in the same direction i.e., high numbers do NOT represent the 'good' condition for both variables. This means that the interpretation of the correlation test is: when the correlation coefficient > 0 and p < 0.05, the two variables change in the same direction so *in this case that would indicate a trade-offs relationship*.  
+
+#### Spearman's - MIT, carbon and gross profit
+
+```{r, echo=FALSE, eval=FALSE}
+hist(c_gp_yld$gp[c_gp_yld$scenario=="MIT"])
+```
+
+
+```{r, echo=FALSE, eval=FALSE}
+hist(c_gp_yld$c_total[c_gp_yld$scenario=="MIT"])
+```
+
+
+```{r, echo=FALSE, eval=FALSE}
+corr_mit_pear <- cor.test(x=c_gp_yld$gpmean[c_gp_yld$scenario=="MIT"], 
+                     y=c_gp_yld$total[c_gp_yld$scenario=="MIT"], 
+                     method = 'pearson')
+corr_mit_pear
+```
+N = 162  
+    
+  
+For MIT, there is a strong positive correlation (i.e. a trade-off) between gross profit and carbon emissions ($r$(160) = 0.68, $p$ < 0.001).    
+
+### BAU
+
+```{r, echo=FALSE, eval=FALSE}
+hist(c_gp_yld$gp[c_gp_yld$scenario=="BAU"])
+```
+
+```{r, echo=FALSE, eval=FALSE}
+hist(c_gp_yld$c_total[c_gp_yld$scenario=="BAU"])
+```
+
+
+### 4.2.3. CWW
+
+#### CWW - Plot 
+```{r}
+ggplot(c_gp_yld %>% 
+         dplyr::filter(scenario=="CWW"), 
+       aes(x=gpmean, y=total)) + 
+  geom_point(color='#2980B9', size = 1) + 
+  geom_smooth(method=lm, se=FALSE, fullrange=TRUE, color='#2C3E50') +
+  labs(
+    x = "Gross profit (£/ha)", 
+    y = "Carbon emissions (kgC02eq/ha)")
+```
+
+
+#### CWW, carbon & gross profit - correlation test
+
+```{r}
+hist(c_gp_yld$gpmean[c_gp_yld$scenario=="CWW"])
+```
+
+
+
+```{r}
+hist(c_gp_yld$total[c_gp_yld$scenario=="CWW"])
+```
+
+
+
+```{r}
+corr_cww <- cor.test(x=c_gp_yld$gpmean[c_gp_yld$scenario=="CWW"], 
+                     y=c_gp_yld$total[c_gp_yld$scenario=="CWW"], 
+                     method = 'pearson')
+corr_cww
+```
+  
+For CWW, there is a weak positive correlation (i.e. a trade-off) between gross profit and carbon emissions ($r$(160) = 0.51, $p$ < 0.001).  
+
+
+
+## calculate rotation means
+```{r, echo=FALSE, eval=FALSE}
+diffs_rotn <- c_gp_yld %>% 
+  dplyr::group_by(scenario, region, soiltype, initDR) %>% 
+  # Calculate rotation gross profit and carbon emissions
+  dplyr::mutate(
+    gp_min = min(gpmean, na.rm = TRUE),
+    gp_max = max(gpmean, na.rm = TRUE),
+    c_min = min(total, na.rm = TRUE),
+    c_max = max(total, na.rm = TRUE),
+  ) %>% 
+  dplyr::summarise(across(c(gpmean, total, gp_min:c_max),.fns = list(
+      mean=~mean(.x, na.rm = TRUE), 
+      #sd=~sd(.x, na.rm = TRUE), 
+      #se=~sd(.x, na.rm = TRUE)/sqrt(length(.x)),
+      n=~nobs(.x)
+      #ci_l=~mean(.x, na.rm = TRUE) - (1.96 * sd(.x, na.rm = TRUE)/sqrt(nobs(.x))),
+      #ci_u=~mean(.x, na.rm = TRUE) + (1.96 * sd(.x, na.rm = TRUE)/sqrt(nobs(.x)))
+      ))) %>% 
+  dplyr::rename(gp_rotnmean = gpmean_mean,
+                gp_min = gp_min_mean,
+                gp_max = gp_max_mean,
+                carbon_rotnmean = total_mean,
+                carbon_min = c_min_mean,
+                carbon_max = c_max_mean) %>% 
+  dplyr::ungroup() %>% 
+  # Calculate rotation opp costs and difference in carbon emissions 
+  group_by(region, soiltype, initDR) %>% 
+  dplyr::mutate(
+    opp_costs = gp_rotnmean - gp_rotnmean[scenario == "BAU"],# BAU-MIT
+    diff_carbon = carbon_rotnmean - carbon_rotnmean[scenario == "BAU"]
+    ) %>% 
+  dplyr::filter(scenario == "MIT")
+
+diffs_rotn
+```
+
+### Plot correlation of switching from BAU to MIT for opp costs and carbon
+```{r}
+corr_diffs_plot <- ggplot(diffs_rotn, aes(x=opp_costs, y=diff_carbon, colour = initDR)) + 
+  geom_jitter(size = 3, pch = 1, width = 3) + 
+  #geom_point(color='#2980B9', size = 3) + 
+  geom_smooth(method=lm, se=FALSE, fullrange=TRUE, color='#2C3E50') +
+  labs(
+    x = "Difference in gross profit,\nMIT - BAU (£/ha)", 
+    y = expression(atop("Difference in carbon emissions,",paste("MIT - BAU (kgCO"["2"]~"eq/ha)")))
+    #y = expression("Difference in carbon emissions, MIT - BAU (kgCO"["2"]~"eq/ha)")
+    ) +
+  # Arrows for opp costs:
+  geom_segment(aes(x=5, y=-1150, xend=50, yend=-1150), 
+               arrow = arrow(length=unit(.3, 'cm')),
+               lineend = "round", 
+               linejoin = "round",
+               linewidth = 0.8,
+               col='black') +
+  annotate("text", x = 55, y = -1150, label = "MIT better",
+           #vjust = 0.3, 
+           hjust = -0.01, # -ve value moves it to the right
+           size = 4) +
+  geom_segment(aes(x=-5, y=-1150, xend=-50, yend=-1150), 
+               arrow = arrow(length=unit(.3, 'cm')),
+               lineend = "round", 
+               linejoin = "round",
+               linewidth = 0.8,
+               col='black') +
+  annotate("text", x = -55, y = -1150, label = "BAU better",
+           #vjust = 0.3, 
+           hjust = 1, # -ve value moves it to the right
+           size = 4) +
+  # Arrows for carbon emissions:
+  # down arrow
+  geom_segment(aes(x=-380, y=-20, xend=-380, yend=-200), 
+               arrow = arrow(length=unit(.3, 'cm')),
+               lineend = "round", 
+               linejoin = "round",
+               linewidth = 0.8,
+               col='black') +
+  annotate("text", x = -380, y = -250, label = "MIT better",
+           hjust = 0.22, # as number gets lower it moves it more to the right
+           size = 4) +
+  # up arrow
+  geom_segment(aes(x=-380, y=20, xend=-380, yend=200), 
+               arrow = arrow(length=unit(.3, 'cm')),
+               lineend = "round", 
+               linejoin = "round",
+               linewidth = 0.8,
+               col='black') +
+  annotate("text", x = -380, y = 250, label = "BAU better",
+           hjust = 0.2, # as number gets lower it moves it more to the right
+           size = 4) +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    #axis.title.x = element_markdown(),
+    axis.text.y = element_text(size=rel(2))
+    ) +
+  annotate("text", x = -90, y = 250, label = "Pearson Correlation",
+           #hjust = 0.2, # as number gets lower it moves it more to the right
+           size = 3) +
+  annotate("text", x = -90, y = 190, label = "r(25) = 0.65, p < 0.001",
+           #hjust = 0.2, # as number gets lower it moves it more to the right
+           size = 3) +
+  #scale_color_viridis_d() +
+  # shade area of synergies
+  xlim(-400, 170) +
+  annotate('rect', xmin=0, xmax=170, ymin=-1200, ymax=0, alpha=.2, fill='lightgreen') +
+  labs(colour = "Initial density\nand resistance") +
+  theme(
+    axis.title = element_text(size=18),
+    axis.text.x = element_text(size=rel(2)),
+    axis.text.y = element_text(size=rel(2)),
+    legend.title=element_text(size=16),
+    legend.text=element_text(size=14),
+    #legend.position = "none"
+    ) 
+
+corr_diffs_plot
+```
+
+For both variables, I did MIT-BAU. Therefore....
+for gross profit, a +ve value means MIT wins because a high gross profit is better than a low gross profit;
+for C emissions, -ve value means MIT wins because a low C emissions are better than high C emissions.
+
+This figure shows there is a trade-off between gross profit and carbon emissions.  
+Top right quadrant: When it's financially better to crop MIT rotations, the resulting carbon emissions are greater (i.e. worse) than had the farmer continued cropping BAU.  
+Bottom left quadrant: When it's financially better to crop BAU rotations, the resulting carbon emissions are greater (i.e. worse) than had the farmer switched to cropping MIT.  
+
+The green area indicates that MIT has higher gross profits and lower carbon emissions than BAU. It's largely LD-LR strategies that don't have trade-offs.  
+  
