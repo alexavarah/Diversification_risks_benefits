@@ -1247,7 +1247,7 @@ Save.
 # print(facetpanel_1col)
 # dev.off()
 
-pdf("../figures/plot_all_outcomes_1col_denres-top.pdf", height = 30, width = 10)
+pdf("../figures/all_outcomes_1col_denres-top.pdf", height = 30, width = 10)
 print(facetpanel_denres_top)
 dev.off()
 ```
