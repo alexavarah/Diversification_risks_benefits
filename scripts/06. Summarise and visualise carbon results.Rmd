@@ -20,29 +20,25 @@ Standard deviation = how widely scattered the measurements are round the mean (i
 Standard error = uncertainty around the estimate of the mean. (The standard error of the mean of one sample is an estimate of the standard deviation that would be obtained from the means of a large number of samples drawn from that population.)   
 95%CI = range of values that describes the uncertainty surrounding an estimate: approximately 95 of the 100 confidence intervals will contain the true mean value  
 
-# 2. Load packages and data
+# 2. Load packages, functions and data
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## 2.1. Load packages
+## 2.1. Load packages & functions
 ```{r, include=FALSE}
 rm(list = ls(all = TRUE)) # make sure envt is clear
 library(tidyverse)
 library(viridis)
+
+source("functions/Count_complete_observations.R")
 ```
 
 
-## 2.2. Load functions
-```{r load-functions, include=FALSE}
-# function to count complete observations
-nobs <- function(x) length(x[!is.na(x)])
-```
-
-## 2.3. Load data
+## 2.2. Load data
 ```{r, include=FALSE}
-c_emis <- read.csv("../output/carbon_results_tidy.csv", header = T) %>% 
+c_emis <- read.csv("../output/trade_offs_tidy.csv", header = T) %>% 
   dplyr::mutate(
     scenario = factor(scenario, levels = c("BAU", "MIT", "CWW")),
     region = factor(region, levels = c("north", "central", "east")),
@@ -73,11 +69,11 @@ c_emis %>%
   # find rotation mean first
   dplyr::group_by(scenario, region, soiltype, initDR) %>% 
   dplyr::summarize(
-    t_mean = mean(total, na.rm = TRUE),
-    t_ci_l = mean(total, na.rm = TRUE) - 
-      (1.96 * sd(total, na.rm = TRUE) / sqrt(length(total))),
-    t_ci_u = mean(total, na.rm = TRUE) + 
-      (1.96 * sd(total, na.rm = TRUE) / sqrt(length(total)))
+    t_mean = mean(c_total, na.rm = TRUE),
+    t_ci_l = mean(c_total, na.rm = TRUE) - 
+      (1.96 * sd(c_total, na.rm = TRUE) / sqrt(length(c_total))),
+    t_ci_u = mean(c_total, na.rm = TRUE) + 
+      (1.96 * sd(c_total, na.rm = TRUE) / sqrt(length(c_total)))
     ) %>% 
   #ungroup() %>% # makes no difference whether this line is run or not
   # then find scenario mean
@@ -95,7 +91,7 @@ c_emis %>%
 
 ```{r}
 c_emis %>%
-  ggplot( aes(x=scenario, y=total, fill=scenario)) +
+  ggplot( aes(x=scenario, y=c_total, fill=scenario)) +
     geom_boxplot() +
     scale_fill_viridis(discrete = TRUE) +
     geom_jitter(aes(color=soiltype), size=0.7, alpha=0.5) +
@@ -103,8 +99,6 @@ c_emis %>%
   ylab("Carbon emissions (kgC02eq/ha)") +
   stat_boxplot(geom = "errorbar", # Error bars
                width = 0.05)   # Bars width
-
-
 ```
   
   
@@ -124,11 +118,11 @@ c_emis %>%
   # find rotation mean first
   dplyr::group_by(scenario, region, soiltype, initDR) %>% 
    dplyr::summarize(
-    t_mean = mean(total, na.rm = TRUE),
-    t_ci_l = mean(total, na.rm = TRUE) - 
-      (1.96 * sd(total, na.rm = TRUE) / sqrt(length(total))),
-    t_ci_u = mean(total, na.rm = TRUE) + 
-      (1.96 * sd(total, na.rm = TRUE) / sqrt(length(total)))
+    t_mean = mean(c_total, na.rm = TRUE),
+    t_ci_l = mean(c_total, na.rm = TRUE) - 
+      (1.96 * sd(c_total, na.rm = TRUE) / sqrt(length(c_total))),
+    t_ci_u = mean(c_total, na.rm = TRUE) + 
+      (1.96 * sd(c_total, na.rm = TRUE) / sqrt(length(c_total)))
     ) %>% 
   # then find scenario mean
   dplyr::group_by(scenario, initDR) %>% 
@@ -154,7 +148,7 @@ c_emis %>%
                                         "CWW_LD-LR", "CWW_LD-HR", "CWW_HD-HR",
                                         "MIT_LD-LR", "MIT_LD-HR", "MIT_HD-HR")
                              )) %>% 
-  ggplot(aes(x=scenario_initDR, y=total, fill=scenario)) +
+  ggplot(aes(x=scenario_initDR, y=c_total, fill=scenario)) +
     geom_boxplot() +
     scale_fill_viridis(discrete = TRUE) +
     geom_jitter(aes(color=soiltype), size=0.7, alpha=0.5) +
@@ -176,7 +170,7 @@ c_emis %>%
 ```{r}
 rotn_means <- c_emis %>% 
   dplyr::group_by(scenario,region,soiltype,initDR) %>% 
-  dplyr::summarise(across(fert_prod:total,.fns = list(
+  dplyr::summarise(across(c_fert_prod:c_total,.fns = list(
       mean=~mean(.x, na.rm = TRUE), 
       sd=~sd(.x, na.rm = TRUE), 
       se=~sd(.x, na.rm = TRUE)/sqrt(length(.x)),
@@ -191,6 +185,7 @@ rotn_means <- c_emis %>%
 Make data long.
 ```{r}
 c_emis_long <- c_emis %>%
+  dplyr::select(ID, scenario, region, soiltype, initDR, year, starts_with("c_")) %>% 
   pivot_longer(!c(ID, scenario, region, soiltype, initDR, year), names_to = "source", values_to = "emissions")
 ```
 
@@ -198,7 +193,6 @@ c_emis_long <- c_emis %>%
 Plot (panel plot).
 ```{r}
 c_emis_long %>%
-  dplyr::filter(!scenario == "CWW") %>% # not economically viable
   dplyr::filter(!source == "c_stock_change") %>% # C stock change is all zero
   #dplyr::mutate(ID = paste(scenario, source, sep = "_")) %>% 
   ggplot( aes(x=source, y=emissions, fill=source)) +
@@ -224,34 +218,18 @@ Pesticide emissions include embodied emissions (manufacture) as well as fuel for
 Here I do MIT - BAU, so if the result is negative it means MIT had lower emissions than BAU.
 ```{r}
 d_e <- c_emis %>% 
-  dplyr::filter(!scenario=="CWW") %>% 
   dplyr::group_by(region, soiltype, initDR, year) %>% 
-  dplyr::mutate(diff_in_emiss = total - total[scenario == "BAU"]) %>% 
+  dplyr::mutate(diff_in_emiss = c_total - c_total[scenario == "BAU"]) %>% 
   dplyr::filter(!scenario=="BAU") %>% 
   dplyr::mutate(ID = paste(region, soiltype, initDR, sep = "_"))
 
 d_e
-  #dplyr::group_by(scenario, initcondit) %>% # find rotation mean
-  #dplyr::summarise(
-  #  oc = mean(opp_cost, na.rm = TRUE),
-  #  oc_ci_l = mean(opp_cost, na.rm = TRUE) - 
-  #    (1.96 * (sd(opp_cost, na.rm = TRUE) / sqrt(nobs(opp_cost)))),
-  #  oc_ci_u = mean(opp_cost, na.rm = TRUE) + 
-  #    (1.96 * (sd(opp_cost, na.rm = TRUE) / sqrt(nobs(opp_cost))))
-  #  ) %>% 
-  #tidyr::separate(initcondit, c("region", "soiltype", "initdenres"), "_") %>% 
-  #dplyr::filter(!scenario=="MIT") %>% 
-  #dplyr::mutate(
-  #  soiltype = factor(soiltype, levels = c("heavy", "medium", "light")),
-  #  region = factor(region, levels = c("north", "central", "east")),
-  #  initdenres = factor(initdenres, levels = c("LD-HR", "HD-HR"))
-  #  )
 ```
 
 
 ### Save tidy results.
 ```{r}
-write.csv(d_e, "../output/difference_in_C_emissions.csv", row.names = FALSE)
+#write.csv(d_e, "../output/difference_in_C_emissions.csv", row.names = FALSE)
 ```
 
 
