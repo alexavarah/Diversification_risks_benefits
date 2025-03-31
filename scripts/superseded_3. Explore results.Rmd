@@ -1,0 +1,89 @@
+---
+title: "Summarise & visualise results"
+author: "Alexa Varah"
+date: "2023-06-05"
+output: html_document
+---
+
+
+# 1. Intro
+
+## Sources of emissions in CFT
+
+**Pesticide emissions**  
+Pesticide emissions = number of pesticide applications * embodied emissions in pesticides (kg COs-eq / dose / ha) * crop yield / ha  
+This doesn't account for the fuel used when applying pesticides, only the emissions caused by pesticide production.  
+
+**Direct and indirect field N2O**  
+Direct and indirect field N2O = Background direct and indirect N2O + Fertiliser induced field emissions (FIE)  
+
+Background direct and indirect N2O = N2O + NO (they don't include NH3 volatilisation + leaching in this equation)
+Fertiliser induced field emissions = N to N2O conversion factor * (N2O + NO + NH3 volatilisation + leaching)
+NH3 volatilisation = volatilisation emissions factor of 0.01 * 
+                      sum of NH3 volatilisation from each fertiliser application
+NH3 volatilisation from a fertiliser application = amount of N applied * 
+      EXP(sum of NH3 volatilisation factors for climate, crop type, soil texture, SOM, soil CEC, drainage, pH + 
+              NH3 from fertiliser production emissions + 
+                NH3 from fertiliser application)
+              
+**Field energy use**  
+This contains emissions from diesel used in tillage, herb spraying, fert spreading/spraying, other field ops (harvest etc - we haven't input data on these other field ops).
+
+
+# 2. Set up
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# 3. Load packages and data
+## 3.1. Load packages
+```{r, include=FALSE}
+rm(list = ls(all = TRUE)) # make sure envt is clear
+library(tidyverse)
+library(viridis)
+```
+
+## 3.2. Load functions
+```{r load-functions, include=FALSE}
+# function to count complete observations
+nobs <- function(x) length(x[!is.na(x)])
+```
+
+## 3.3. Load & tidy data
+```{r, include=FALSE}
+c_emis <- read.csv("../output/carbon_results.csv", header = T) %>% 
+  dplyr::rename(ID = Field.ID,
+                fert_prod = "Fertiliser.production..kgC02eq.ha.",
+                fert_appl = "Field.N20.from.fertiliser..kgC02eq.ha.",
+                pesticide = "Pesticide..kgC02eq.ha.",
+                c_stock_change = "C.stock.changes..kgC02eq.ha.",
+                field_energy_use = "Field.energy.use..kgC02eq.ha.",
+                total = "Total..kgC02eq.ha.") %>%
+  dplyr::mutate(to_split = ID) %>% 
+  separate(to_split, 
+                  into = c("scenario", "region", "soiltype",
+                           "initDR", "year"),sep = "_") %>% 
+  dplyr::mutate(
+    scenario = factor(scenario, levels = c("BAU", "MIT", "CWW")),
+    region = dplyr::recode(region, # rename levels of 'region'
+                           "n" = "north",
+                           "c" = "central",
+                           "e" = "east"),
+    region = factor(region, levels = c("north", "central", "east")),
+    soiltype = dplyr::recode(soiltype,  # rename levels of 'soiltype'
+                              "h" = "heavy" ,
+                              "m" = "medium",
+                              "l" = "light"),
+    soiltype = factor(soiltype, levels = c("heavy", "medium","light")),
+    initDR = factor(initDR, levels = c("LD-LR", "LD-HR", "HD-HR"))
+    )
+```
+
+Save tidy results.
+```{r}
+write.csv(c_emis, "../output/carbon_results_tidy.csv", row.names = FALSE)
+```
+
+
