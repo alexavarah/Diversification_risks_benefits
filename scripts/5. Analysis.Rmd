@@ -754,7 +754,7 @@ pc_change_all <- pc_change_rotn %>%
 rm(pc_change_rotn, density_rot)
 ```
 
-## 4.3. Save output as .csv
+### 4.2.3. Save output as .csv
 ```{r}
 write.csv(pc_change_all, "../output/summarytable_percent_change.csv", row.names = FALSE)
 ```
