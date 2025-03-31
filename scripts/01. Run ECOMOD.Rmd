@@ -1,5 +1,5 @@
 ---
-title: "Run ECOMOD for corrected BAU scenario"
+title: "Run ECOMOD"
 author: "Alexa Varah"
 date: "2025-03-31"
 output: html_document
@@ -14,7 +14,7 @@ N price was given as 0.71, P price as 0.44 and K price as 0.46. Now corrected to
 2. Some of the tillage for BAU was wrong. 
 C_heavy_L-Dsty.L-Res year 5 had been specified as inversion whereas there was no inversion ploughing on heavy soils in the BAU strategies.
 
-This script re-runs the BAU scenario through ECOMOD.  
+This script re-runs the BAU scenario through ECOMOD. It also runs MIT as I need the output files so I can calculate the difference between BAU and MIT.  
   
 The resistance management paper will therefore have underestimated the BAU costs and so any differences between MIT and BAU will be overestimated. This will need correcting.  
 
