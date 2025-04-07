@@ -1672,17 +1672,16 @@ cost_sources_east <- ggplot(sources_of_costs %>%
                   size = 0.9) +
   geom_hline(yintercept=0, linetype="dashed", color = "black") +
   theme_bw() + 
-  theme(strip.placement = 'outside',
+  theme(plot.title = element_text(size = 22, face = "bold"),
+        strip.placement = 'outside',
         strip.text.x = element_text(size = 22),
         strip.text.y = element_text(size = 22),
         axis.title = element_text(size = 24),
         axis.text.x = element_text(size = rel(2.2)),
         axis.text.y = element_text(size = rel(2.2)),
         legend.text = element_text(size = 22),
-        plot.title = element_text(size = 22, face = "bold"),
         legend.title = element_blank(),
-        legend.position = "bottom"
-        ) +
+        legend.position = "bottom") +
   ggtitle('East')
 
 
