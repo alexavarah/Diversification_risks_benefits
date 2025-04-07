@@ -1584,31 +1584,27 @@ cost_sources_north <- ggplot(sources_of_costs %>%
   scale_colour_manual(values = c("#009E73", "#CC6677"), 
                       labels = c("MIT wins", "MIT loses")) +
   facet_grid(soiltype ~ initDR, 
-             labeller = labeller(soiltype = soiltype.labs, initDR = denres.labs)
-             ) +
+             labeller = labeller(soiltype = soiltype.labs, initDR = denres.labs)) +
   scale_x_discrete(guide = guide_axis(angle = 45)) +
   labs(x = "Source of costs", 
        y = expression(atop("Mean annual difference in costs",
-                           paste("between scenarios (MIT-BAU) (£ / ha)")))
-       ) +
+                           paste("between scenarios (MIT-BAU) (£ / ha)")))) +
   geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
                   position=position_dodge(width=0.3),
                   size = 0.9) +
   geom_hline(yintercept=0, linetype="dashed", color = "black") +
   theme_bw() + 
-  theme(strip.placement = 'outside',
+  theme(plot.title = element_text(size = 22, face = "bold"),
+        strip.placement = 'outside',
         strip.text.x = element_text(size = 22),
         strip.text.y = element_text(size = 22),
         axis.title=element_text(size=24),
         axis.title.x = element_blank(),
-        #axis.text.x = element_blank(),
         axis.text.x=element_text(size=rel(2.2)),
         axis.text.y=element_text(size=rel(2.2)),
         legend.text=element_text(size=22),
         legend.title = element_blank(),
-        plot.title = element_text(size = 22, face = "bold"),
-        legend.position = "none",
-        tag.text = element_text(size=22)
+        legend.position = "none"
         ) +
   ggtitle('North')
 
@@ -1621,33 +1617,28 @@ cost_sources_central <- ggplot(sources_of_costs %>%
                       labels = c("MIT wins", "MIT loses")) +
   facet_grid(soiltype ~ initDR,
              labeller = labeller(soiltype = soiltype.labs, 
-                                 initDR = denres.labs)
-             ) +
+                                 initDR = denres.labs)) +
   scale_x_discrete(guide = guide_axis(angle = 45)) +
   labs(x = "Source of costs", 
        y = expression(atop("Mean annual difference in costs",
-                           paste("between scenarios (MIT-BAU) (£ / ha)")))
-       #y = expression("Difference in costs between scenarios (MIT-BAU) (£ / ha)")
-       ) +
+                           paste("between scenarios (MIT-BAU) (£ / ha)")))) +
   geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
                   position=position_dodge(width=0.3),
                   size = 0.9) +
   geom_hline(yintercept=0, linetype="dashed", color = "black") +
   theme_bw() + 
-  theme(strip.placement = 'outside',
+  theme(plot.title = element_text(size = 22, face = "bold"),
+        strip.placement = 'outside',
         strip.text.x = element_text(size = 22),
         strip.text.y = element_text(size = 22),
         axis.title = element_text(size=24),
         axis.title.x = element_blank(),
-        #axis.text.x = element_blank(),
         axis.text.x = element_text(size=rel(2.2)),
         axis.title.y = element_blank(),
         axis.text.y = element_text(size=rel(2.2)),
         legend.text = element_text(size=22),
-        plot.title = element_text(size = 22, face = "bold"),
         legend.title = element_blank(),
-        legend.position = "none"
-        ) +
+        legend.position = "none") +
   ggtitle('Central')
 
 
@@ -1659,14 +1650,11 @@ cost_sources_east <- ggplot(sources_of_costs %>%
                       labels = c("MIT wins", "MIT loses")) +
   facet_grid(soiltype ~ initDR,
              labeller = labeller(soiltype = soiltype.labs, 
-                                 initDR = denres.labs)
-             ) +
+                                 initDR = denres.labs)) +
   scale_x_discrete(guide = guide_axis(angle = 45)) +
   labs(x = "Source of costs", 
        y = expression(atop("Mean annual difference in costs",
-                           paste("between scenarios (MIT-BAU) (£ / ha)")))
-       #y = expression("Difference in costs between scenarios (MIT-BAU) (£ / ha)")
-       ) +
+                           paste("between scenarios (MIT-BAU) (£ / ha)")))) +
   geom_pointrange(aes(ymin = rotation_min, ymax = rotation_max), 
                   position=position_dodge(width=0.3),
                   size = 0.9) +
@@ -1684,31 +1672,29 @@ cost_sources_east <- ggplot(sources_of_costs %>%
         legend.position = "bottom") +
   ggtitle('East')
 
-
-
 # combine vertical ----
-cost_sources_1col <- cost_sources_north + cost_sources_central + cost_sources_east + plot_layout(ncol = 1) +
-  plot_annotation(
-    #tag_levels = 'a', 
-    tag_levels = list(c("(a) North", "(b) Central" , "(c) East")),
-    tag_prefix = '',  
-    tag_suffix = ''
-    ) & 
-  theme(plot.tag = element_text(size = 22, face="bold"))
+# cost_sources_1col <- cost_sources_north + cost_sources_central + cost_sources_east + plot_layout(ncol = 1) +
+#   plot_annotation(
+#     tag_levels = 'a', 
+#     #tag_levels = list(c("(a) N", "(b) C" , "(c) E")),
+#     tag_prefix = '(',  
+#     tag_suffix = ')'
+#     ) & 
+#   theme(plot.tag = element_text(size = 22, face="bold"))
 
 
 # combine horizontal ----
-cost_sources_3col <- cost_sources_north + cost_sources_central + cost_sources_east + plot_layout(ncol = 2) +
-  plot_annotation(
-    #tag_levels = 'a', 
-    tag_levels = list(c("(a) N", "(b) C" , "(c) E")),
-    tag_prefix = '',  
-    tag_suffix = ''
-    ) & 
-  theme(plot.tag = element_text(size = 22, face="bold"))
+# cost_sources_3col <- cost_sources_north + cost_sources_central + cost_sources_east + plot_layout(ncol = 2) +
+#   plot_annotation(
+#     tag_levels = 'a', 
+#     #tag_levels = list(c("(a) N", "(b) C" , "(c) E")),
+#     tag_prefix = '(',  
+#     tag_suffix = ')'
+#     ) & 
+#   theme(plot.tag = element_text(size = 22, face="bold"))
 
 # combine square ----
-cost_sources_2col <- ccost_sources_north + cost_sources_central + cost_sources_east + plot_layout(ncol = 2, nrow = 2) +
+cost_sources_2col <- cost_sources_north + cost_sources_central + cost_sources_east + plot_layout(ncol = 2, nrow = 2) +
   plot_annotation(
     tag_levels = 'a', 
     #tag_levels = list(c("N", "C" , "E")),
@@ -1729,14 +1715,14 @@ cost_sources_2col <- ccost_sources_north + cost_sources_central + cost_sources_e
 # print(facetpanel_1col)
 # dev.off()
 
-pdf("../figures/costs-only_sources_1col.pdf", height = 30, width = 10)
-print(cost_sources_1col)
-dev.off()
-
-
-pdf("../figures/costs-only_sources_3col.pdf", height = 10, width = 30)
-print(cost_sources_3col)
-dev.off()
+# pdf("../figures/costs-only_sources_1col.pdf", height = 30, width = 10)
+# print(cost_sources_1col)
+# dev.off()
+# 
+# 
+# pdf("../figures/costs-only_sources_3col.pdf", height = 10, width = 30)
+# print(cost_sources_3col)
+# dev.off()
 
 pdf("../figures/costs-only_sources_2col.pdf", height = 25, width = 20)
 print(cost_sources_2col)
