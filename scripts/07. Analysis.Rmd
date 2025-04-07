@@ -45,12 +45,12 @@ rm(list = ls(all = TRUE)) # clear envt
 remove.packages("tidyverse")
 install.packages(c("ggplot2", "dplyr", "tidyr", "readr", "purrr", "tibble", "stringr"))
 install.packages("tidyverse")
-library(tidyverse)
+library(tidyverse) # for east data manip and plotting
 library(patchwork) # for panel plots
-library(grateful)
+library(grateful) # for citing R packages
 library(readxl) # for reading in Excel workbooks / spreadsheets
-library(viridis)
-library(forcats)
+library(viridis) # for colour-blind-friendly palettes
+library(forcats) # for easy re-coding of factors
 
 # Load functions
 source("functions/Count_complete_observations.R")
@@ -174,10 +174,11 @@ rm(strat2)
 For plots of the effect of initial density-resistance state *within regions and soil types* (i.e., panel plots, where panels are region and soil), range needs to show variability across years in the rotation.  
 
 ### 3.2.1. Carbon, gross profit, yield (rotation mean and differences between BAU and MIT)
+Here, the mean is the rotation mean and the min and max values give range across years within a rotation.  
 ```{r, attr.source='.numberLines'}
 trdoff_rot <- c_gp_yld %>% 
   dplyr::group_by(scenario, region, soiltype, initDR) %>% 
-  # calculate min and max values (this grouping will give range across years)----
+  # calculate min and max values (this grouping will give range across years within a rotation)----
   dplyr::mutate(
     gp_min = min(gp, na.rm = TRUE),
     gp_max = max(gp, na.rm = TRUE),
@@ -229,8 +230,8 @@ trdoff_rot <- c_gp_yld %>%
 
 
 ### 3.2.2. Weed density ((a) rotation mean density and (b) proportion h & vh in year 6)
+This gives mean for each level of initial density and resistance. The min and max values show the lowest and highest rotation mean % change, or year 6 mean % change, across regions and soil types.  
 ```{r, attr.source='.numberLines'}
-rm(density_rot)
 density_rot <- res_tidy %>%
   dplyr::rename(initDR = initDR3) %>% # rename the column
   
@@ -450,7 +451,7 @@ rm(mean_df, min_df, max_df, c_source)
 # 4. Tables
 ## 4.1. Mean difference in C emissions per initDR 
 ### 4.1.1. Calculate difference for each year, take mean across rotation
-(a) WRONG This gives min and max values across regions and soil types. Used in the paper.  
+(a) WRONG This gives min and max values across regions and soil types.  
 ```{r}
 c_gp_yld %>%
   
@@ -529,30 +530,39 @@ c_gp_yld %>%
 
 dplyr::filter(scenario == "MIT") %>% 
   
-  # 1. Get mean, min and max differences for each strategy
+  # 1. Get rotation mean, plus annual min and max differences for each strategy
   dplyr::group_by(scenario, region, soiltype, initDR) %>% 
   dplyr::mutate(
-    ghg_strategy_diff_mean = mean(c_emiss_diff),
-    ghg_strategy_diff_min = min(c_emiss_diff), # this is the min value of any year for a particular strategy.
-    ghg_strategy_diff_max = max(c_emiss_diff)
+    ghg_diff_annual_mean = mean(c_emiss_diff),
+    ghg_diff_annual_min = min(c_emiss_diff), # this is the minimum difference of any year for a particular rotation
+    ghg_diff_annual_max = max(c_emiss_diff)
   ) %>%
   ungroup() %>%
-  select(scenario, region, soiltype, initDR, ghg_strategy_diff_mean, ghg_strategy_diff_min, ghg_strategy_diff_max) %>%
+  select(scenario, region, soiltype, initDR, ghg_diff_annual_mean, ghg_diff_annual_min, ghg_diff_annual_max) %>%
   dplyr::distinct(scenario, region, soiltype, initDR, .keep_all = TRUE) %>% 
     
   # 2. Calculate mean, min, max for each level of initDR
   dplyr::group_by(initDR) %>% 
   dplyr::mutate(
-    ghg_initDR_diff_mean = mean(ghg_strategy_diff_mean),
-    ghg_initDR_diff_min_mean = mean(ghg_strategy_diff_min),
-    ghg_initDR_diff_max_mean = mean(ghg_strategy_diff_max),
-    overall_min = min(ghg_strategy_diff_min),
-    overall_max = max(ghg_strategy_diff_max)
+    ghg_annualdiff_mean = mean(ghg_diff_annual_mean),
+    # min and max of the rotation means
+    ghg_annualdiff_min = min(ghg_diff_annual_min),
+    ghg_annualdiff_max = max(ghg_diff_annual_max),
+    # mean across all the min (or max) values of any year for any rotation in each level of initDR
+    # in other words, the mean value across the lowest (or highest) annual differences from each rotation
+    # or, the mean across the minimum differences from any year for each particular rotation within one initDR level
+    ghg_annualdiff_min_mean = mean(ghg_diff_annual_min),
+    ghg_annualdiff_max_mean = mean(ghg_diff_annual_max),
+    # min and max difference from any rotation in each level of initDR
+    overall_min = min(ghg_diff_annual_min),
+    overall_max = max(ghg_diff_annual_max)
   ) %>% 
   
   # 4. Select just useful columns and filter out duplicates
   dplyr::select(initDR, 
-                ghg_initDR_diff_mean, ghg_initDR_diff_min_mean, ghg_initDR_diff_max_mean, overall_min, overall_max) %>% 
+                ghg_annualdiff_mean, ghg_annualdiff_min, ghg_annualdiff_max, 
+                ghg_annualdiff_min_mean, ghg_annualdiff_max_mean,
+                overall_min, overall_max) %>% 
   dplyr::distinct(initDR, .keep_all = TRUE) %>% 
   arrange(initDR)
 ```
@@ -1114,7 +1124,7 @@ Save.
 # print(facetpanel_1col)
 # dev.off()
 
-pdf("../figures/plot_all_outcomes_1col.pdf", height = 30, width = 10)
+pdf("../figures/all_outcomes_1col.pdf", height = 30, width = 10)
 print(facetpanel_1col)
 dev.off()
 ```
@@ -1404,7 +1414,7 @@ Save plot.
 # print(facetpanel_1col)
 # dev.off()
 
-pdf("../figures/emissions_sources_1col_new.pdf", height = 30, width = 10)
+pdf("../figures/emissions_sources_1col.pdf", height = 30, width = 10)
 print(sources_1col)
 dev.off()
 ```
@@ -1568,7 +1578,7 @@ Make plots & combine.
 A -ve value means MIT wins (green = MIT wins, orange = MIT loses) 
 ```{r}
 # north ----
-cost_sources_n_1col <- ggplot(sources_of_costs %>% 
+cost_sources_north <- ggplot(sources_of_costs %>% 
                            dplyr::filter(region == "north" & !grepl("output", source_of_cost_difference)),
                aes(source_of_cost_difference, rotation_mean, colour = rotation_mean > 0)) + 
   scale_colour_manual(values = c("#009E73", "#CC6677"), 
@@ -1596,13 +1606,15 @@ cost_sources_n_1col <- ggplot(sources_of_costs %>%
         axis.text.y=element_text(size=rel(2.2)),
         legend.text=element_text(size=22),
         legend.title = element_blank(),
+        plot.title = element_text(size = 22, face = "bold"),
         legend.position = "none",
         tag.text = element_text(size=22)
-        )
+        ) +
+  ggtitle('North')
 
 
 # central ----
-cost_sources_c_1col <- ggplot(sources_of_costs %>% 
+cost_sources_central <- ggplot(sources_of_costs %>% 
                            dplyr::filter(region == "central" & !grepl("output", source_of_cost_difference)),
                aes(source_of_cost_difference, rotation_mean, colour = rotation_mean > 0)) + 
   scale_colour_manual(values = c("#009E73", "#CC6677"), 
@@ -1628,17 +1640,19 @@ cost_sources_c_1col <- ggplot(sources_of_costs %>%
         axis.title = element_text(size=24),
         axis.title.x = element_blank(),
         #axis.text.x = element_blank(),
-        axis.text.x=element_text(size=rel(2.2)),
+        axis.text.x = element_text(size=rel(2.2)),
         axis.title.y = element_blank(),
-        axis.text.y=element_text(size=rel(2.2)),
-        legend.text=element_text(size=22),
+        axis.text.y = element_text(size=rel(2.2)),
+        legend.text = element_text(size=22),
+        plot.title = element_text(size = 22, face = "bold"),
         legend.title = element_blank(),
         legend.position = "none"
-        ) 
+        ) +
+  ggtitle('Central')
 
 
 # east ----
-cost_sources_e_1col <- ggplot(sources_of_costs %>% 
+cost_sources_east <- ggplot(sources_of_costs %>% 
                            dplyr::filter(region == "east" & !grepl("output", source_of_cost_difference)),
                aes(source_of_cost_difference, rotation_mean, colour = rotation_mean > 0)) + 
   scale_colour_manual(values = c("#009E73", "#CC6677"), 
@@ -1661,18 +1675,20 @@ cost_sources_e_1col <- ggplot(sources_of_costs %>%
   theme(strip.placement = 'outside',
         strip.text.x = element_text(size = 22),
         strip.text.y = element_text(size = 22),
-        axis.title=element_text(size=24),
-        axis.text.x=element_text(size=rel(2.2)),
-        axis.text.y=element_text(size=rel(2.2)),
-        legend.text=element_text(size=22),
+        axis.title = element_text(size = 24),
+        axis.text.x = element_text(size = rel(2.2)),
+        axis.text.y = element_text(size = rel(2.2)),
+        legend.text = element_text(size = 22),
+        plot.title = element_text(size = 22, face = "bold"),
         legend.title = element_blank(),
         legend.position = "bottom"
-        ) 
+        ) +
+  ggtitle('East')
 
 
 
 # combine vertical ----
-cost_sources_1col <- cost_sources_n_1col + cost_sources_c_1col + cost_sources_e_1col + plot_layout(ncol = 1) +
+cost_sources_1col <- cost_sources_north + cost_sources_central + cost_sources_east + plot_layout(ncol = 1) +
   plot_annotation(
     #tag_levels = 'a', 
     tag_levels = list(c("(a) North", "(b) Central" , "(c) East")),
@@ -1683,7 +1699,7 @@ cost_sources_1col <- cost_sources_n_1col + cost_sources_c_1col + cost_sources_e_
 
 
 # combine horizontal ----
-cost_sources_3col <- cost_sources_n_1col + cost_sources_c_1col + cost_sources_e_1col + plot_layout(ncol = 2) +
+cost_sources_3col <- cost_sources_north + cost_sources_central + cost_sources_east + plot_layout(ncol = 2) +
   plot_annotation(
     #tag_levels = 'a', 
     tag_levels = list(c("(a) N", "(b) C" , "(c) E")),
@@ -1693,12 +1709,12 @@ cost_sources_3col <- cost_sources_n_1col + cost_sources_c_1col + cost_sources_e_
   theme(plot.tag = element_text(size = 22, face="bold"))
 
 # combine square ----
-cost_sources_2col <- cost_sources_n_1col + cost_sources_c_1col + cost_sources_e_1col + plot_layout(ncol = 2, nrow = 2) +
+cost_sources_2col <- ccost_sources_north + cost_sources_central + cost_sources_east + plot_layout(ncol = 2, nrow = 2) +
   plot_annotation(
-    #tag_levels = 'a', 
-    tag_levels = list(c("N", "C" , "E")),
-    tag_prefix = '',  
-    tag_suffix = ''
+    tag_levels = 'a', 
+    #tag_levels = list(c("N", "C" , "E")),
+    tag_prefix = '(',  
+    tag_suffix = ')'
     ) & 
   theme(plot.tag = element_text(size = 22, face="bold"))
 ```
@@ -1743,7 +1759,6 @@ Labour cost (£/ha) = Work rate (h/ha) × Hourly labour wage (£/h)
 TOTAL: *Operation cost (£/ha) = Fuel cost + Labour cost*  
   
 ```{r}
-rm(cost_output_diffs)
 cost_output_diffs <- c_gp_yld %>% 
 
 # 1. Sum variable and ops costs
