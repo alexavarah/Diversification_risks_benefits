@@ -7,19 +7,10 @@ output: html_document
 
 # 1. Intro
 
-The previous BAU file had some incorrect specifications. The errors were as follows:  
-1. The prices for fertiliser in the BAU input file were wrong.  
-N price was given as 0.71, P price as 0.44 and K price as 0.46. Now corrected to 0.80, 0.72 and 0.46 respectively.  
-
-2. Some of the tillage for BAU was wrong. 
-C_heavy_L-Dsty.L-Res year 5 had been specified as inversion whereas there was no inversion ploughing on heavy soils in the BAU strategies.
-
-This script re-runs the BAU scenario through ECOMOD. It also runs MIT as I need the output files so I can calculate the difference between BAU and MIT.  
-  
-The resistance management paper will therefore have underestimated the BAU costs and so any differences between MIT and BAU will be overestimated. This will need correcting.  
+This script runs the BAU and MIT scenarios through ECOMOD. We run strategies with 'actual' and 'estimated' yields to deal with crops not included in ECOMOD. Ensure the soil variable has two decimal places or ECOMOD won't run.  
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE) # both the R code and its output will be shown in the rendered document
 ```
 
 # 2. Load packages & functions
@@ -44,43 +35,39 @@ Make input files.
 ```{r load-tidy-BAU}
 # Read in file and sort out a few things initially.
 bau_econdata = read_xlsx("../data/InputData_BAU_ECOMOD&CFT_2025-03-31.xlsx",5) %>% 
-  mutate(soil = as.numeric(soil)) %>% # soil texture should be numeric
-  mutate_at(3, round, 2) %>%  # soil texture needs 2 decimal places
-  # replace density and resistance abbreviations with even shorter forms:
-  mutate(
+  dplyr::mutate(soil = as.numeric(soil)) %>% # soil texture should be numeric
+  dplyr::mutate_at(3, round, 2) %>%  # soil texture needs 2 decimal places
+  dplyr::mutate(# replace density and resistance abbreviations with shorter forms
     farm_id = gsub('L-Dsty.L-Res', 'LD-LR', farm_id), 
     farm_id = gsub('L-Dsty.H-Res', 'LD-HR', farm_id),
     farm_id = gsub('H-Dsty.H-Res', 'HD-HR', farm_id),
     farm_id = gsub('\\.', '_', farm_id), # replace . with _
   )
 
-# Insert the additional scenarios that Rob G can run. 
-# He can differentiate all density states.
-# LD-LR becomes LD-LR and MD-LR
-# LD-HR becomes LD-HR and MD-HR
-# HD-HR becomes HD-HR and VD-HR
+# Insert the additional density states run through density simulation models (they can run medium and very high densities).
+# LD-LR -> LD-LR and MD-LR
+# LD-HR -> LD-HR and MD-HR
+# HD-HR -> HD-HR and VD-HR
 
-# create new rows to be added
-#insert.df <- transform(bau_econdata, elevation = elevation - length)
-
-bau_insert.df <- bau_econdata %>% 
+# Create new rows to be added
+bau_insert_df <- bau_econdata %>% 
   mutate(
     farm_id = gsub('LD-LR', 'MD-LR', farm_id), # replace LD-LR with MD-LR
     farm_id = gsub('LD-HR', 'MD-HR', farm_id),
     farm_id = gsub('HD-HR', 'VD-HR', farm_id)
   )
     
-# join the two data frames
-bau_out.df <- rbind(bau_econdata, bau_insert.df)
+# Join the two data frames
+bau_out_df <- rbind(bau_econdata, bau_insert_df)
 
-# re-order so that new rows are inserted every other row
+# Re-order so that new rows are inserted every other row
 n <- nrow(bau_econdata)
-bau_econ.input.data <- bau_out.df[kronecker(1:n, c(0, n), "+"), ]
+bau_econ_input_data <- bau_out_df[kronecker(1:n, c(0, n), "+"), ]
 
 ## Create input files for each black-grass density state
 
 # LOW / ABSENT
-bau_l <- bau_econ.input.data %>%
+bau_l <- bau_econ_input_data %>%
   mutate(across(starts_with('blackgrass'), ~replace(., . %in% c("medium","high","veryhigh"), "low"))) %>%
   data.frame()
 
@@ -98,12 +85,23 @@ bau_h = bau_m %>%
 bau_v = bau_h %>%
   mutate(across(starts_with('blackgrass'), ~replace(., . %in% "high", "veryhigh"))) %>% 
   data.frame()
+
+# Clear up
+rm(bau_l)
+rm(bau_m)
+rm(bau_h)
+rm(bau_v)
+rm(bau_econdata)
+rm(bau_insert_df)
+rm(bau_out_df)
+rm(bau_econ_input_data)
+rm(n)
 ```
 
 ## 3.2. Run BAU thru ECOMOD
 ```{r runECOMOD-BAU}
-
-# 4.1. Run ECOMOD - LOW / ABSENT density ----
+# //////////////////////////////////////////////////////////////////////////////
+# Run ECOMOD - LOW / ABSENT density ----
 fn = "../output/bau_ECOMOD_output_L.csv" # name the output file
 fd = bau_l
 fd$soil = as.numeric(format(round(as.numeric(fd$soil), 2), nsmall = 2))
@@ -124,7 +122,7 @@ rm(mfm)
 
 
 # //////////////////////////////////////////////////////////////////////////////
-# 4.2. Run ECOMOD - MEDIUM density ----
+# Run ECOMOD - MEDIUM density ----
 
 fn = "../output/bau_ECOMOD_output_M.csv" # name the output file
 fd = bau_m
@@ -146,7 +144,7 @@ rm(mfm)
 
 
 # //////////////////////////////////////////////////////////////////////////////
-# 4.3. Run ECOMOD - HIGH density
+# Run ECOMOD - HIGH density ----
 
 fn = "../output/bau_ECOMOD_output_H.csv" # name the output file
 fd = bau_h
@@ -168,7 +166,7 @@ rm(mfm)
 
 
 # //////////////////////////////////////////////////////////////////////////////
-# 4.4. Run ECOMOD - VERY HIGH density
+# Run ECOMOD - VERY HIGH density ----
 
 fn = "../output/bau_ECOMOD_output_V.csv" # name the output file
 fd = bau_v
@@ -189,25 +187,14 @@ rm(fd)
 rm(mfm)
 ```
 
-## 3.3. Clean up
-```{r BAU-clean-up}
-rm(bau_l)
-rm(bau_m)
-rm(bau_h)
-rm(bau_v)
-rm(bau_econdata)
-rm(bau_insert.df)
-rm(bau_out.df)
-rm(bau_econ.input.data)
-rm(n)
-```
+
 
 # 4. MIT
-Because there are crops in the Farmer Focus strategies that ECOMOD can't model (e.g. spring oats), we read in two versions of the FF strategies. One version has yield set to 'actual', in which average yields for spring oats are given. The second version has yield set to 'estimate', so ECOMOD will estimate yields.
+Because there are crops in the Mitigation strategies that ECOMOD can't model (e.g. spring oats), we read in two versions of the MIT strategies. One version has yield set to 'actual', in which average yields for spring oats are given. The second version has yield set to 'estimate', so ECOMOD will estimate yields.
 
 ## 4.1. Make input files
 ```{r load-tidy-MIT}
-## Read in the raw data.
+## Read in the raw data
 mit_est = read_xlsx("../data/InputData_MIT_ECOMOD&CFT_2025-03-31.xlsx",3) %>% 
   select(-"lookup_ref") %>%  # remove 'lookup_ref' column
   mutate(soil = as.numeric(soil)) %>% # soil texture should be numeric
@@ -223,7 +210,6 @@ mit_act = read_xlsx("../data/InputData_MIT_ECOMOD&CFT_2025-03-31.xlsx",4) %>%
 # LOW / ABSENT
 mit_l_est <- mit_est %>%
   mutate(across(starts_with('blackgrass'), ~replace(., . %in% c("medium","high","veryhigh"), "low"))) %>%
-  #select(-X) %>% # remove extra 'row identifier' column added by R when reading in the file
   data.frame()
 
 mit_l_act <- mit_act %>%
@@ -264,7 +250,6 @@ mit_v_act = mit_l_act %>%
 ### 4.2.1. Run ECOMOD, low density, yield = "estimate" 
 Replace spring oats with spring barley and ensure soil is to two decimal places or ECOMOD won't run.
 ```{r runECOMOD-MIT-lowden-est}
-## (l.i)   Run ECOMOD, low density, yield = "estimate" ----
 fn = "../output/mit_ECOMOD_output_L_estimate.csv" # name the output file
 
 fd = mit_l_est %>% 
@@ -325,8 +310,7 @@ Add the 'actual' spring oat output into the 'estimate' output file.
 est_l <- read.csv('../output/mit_ECOMOD_output_L_estimate.csv', header=T)
 act_l <- read.csv('../output/mit_ECOMOD_output_L_actual.csv', header=T) # this only has rows containing spring oats
 
-# Extract rows 1-4 to deal with those first
-# For these rows, spring oats is the 4th crop and was run as spring barley
+# Extract rows 1-4 - for these rows, spring oats is the 4th crop and was run as spring barley
 act_l_1to4 <- act_l %>% 
   filter(Field_no %in% c(1,2,3,4)) %>% 
   select(!Field_no)
@@ -426,8 +410,7 @@ Add the 'actual' spring oat output into the 'estimate' output file.
 est_m <- read.csv('../output/mit_ECOMOD_output_M_estimate.csv', header=T)
 act_m <- read.csv('../output/mit_ECOMOD_output_M_actual.csv', header=T) # this only has rows containing spring oats
 
-# Extract rows 1-4 to deal with those first
-# For these rows, spring oats is the 4th crop and was run as spring barley
+# Extract rows 1-4 - for these rows, spring oats is the 4th crop and was run as spring barley
 act_m_1to4 <- act_m %>% 
   filter(Field_no %in% c(1,2,3,4)) %>% 
   select(!Field_no)
@@ -530,8 +513,7 @@ Add the 'actual' spring oat output into the 'estimate' output file.
 est_h <- read.csv('../output/mit_ECOMOD_output_H_estimate.csv', header=T)
 act_h <- read.csv('../output/mit_ECOMOD_output_H_actual.csv', header=T) # this only has rows containing spring oats
 
-# Extract rows 1-4 to deal with those first
-# For these rows, spring oats is the 4th crop and was run as spring barley
+# Extract rows 1-4 - for these rows, spring oats is the 4th crop and was run as spring barley
 act_h_1to4 <- act_h %>% 
   filter(Field_no %in% c(1,2,3,4)) %>% 
   select(!Field_no)
@@ -637,8 +619,7 @@ Add the 'actual' spring oat output into the 'estimate' output file.
 est_v <- read.csv('../output/mit_ECOMOD_output_V_estimate.csv', header=T)
 act_v <- read.csv('../output/mit_ECOMOD_output_V_actual.csv', header=T) # this only has rows containing spring oats
 
-# Extract rows 1-4 to deal with those first
-# For these rows, spring oats is the 4th crop and was run as spring barley
+# Extract rows 1-4 - for these rows, spring oats is the 4th crop and was run as spring barley
 act_v_1to4 <- act_v %>% 
   filter(Field_no %in% c(1,2,3,4)) %>% 
   select(!Field_no)
