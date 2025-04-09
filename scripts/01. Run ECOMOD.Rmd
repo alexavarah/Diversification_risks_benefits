@@ -7,7 +7,7 @@ output: html_document
 
 # 1. Intro
 
-This script runs the BAU and MIT scenarios through ECOMOD. We run strategies with 'actual' and 'estimated' yields to deal with crops not included in ECOMOD. Ensure the soil variable has two decimal places or ECOMOD won't run.  
+This script runs the BAU and MIT strategies through ECOMOD. We run strategies with 'actual' and 'estimated' yields to deal with crops not included in ECOMOD. Ensure the soil variable has two decimal places or ECOMOD won't run.  
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE) # both the R code and its output will be shown in the rendered document
