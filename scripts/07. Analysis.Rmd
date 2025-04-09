@@ -758,7 +758,12 @@ This approach (in which I calculated % change from rotation means) is the same a
 pc_change_all <- pc_change_rotn %>% 
   dplyr::left_join(density_rot, by = "initDR") %>% 
   dplyr::select(-c(mds_pc_mean, mds_pc_min, mds_pc_max)) %>% 
-  dplyr::relocate(hvhyr6_pc_mean:hvhyr6_pc_max, .after = initDR)
+  dplyr::relocate(hvhyr6_pc_mean:hvhyr6_pc_max, .after = initDR) %>% 
+  dplyr::rename(
+    bg_density_pc_mean = hvhyr6_pc_mean,
+    bg_density_pc_min = hvhyr6_pc_min,
+    bg_density_pc_max = hvhyr6_pc_max
+  )
 
 # Tidy up
 rm(pc_change_rotn, density_rot)
