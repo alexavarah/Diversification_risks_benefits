@@ -772,7 +772,7 @@ pc_change_all
 
 ### 4.2.3. Save output as .csv
 ```{r}
-write.csv(pc_change_all, "../output/summarytable_percent_change.csv", row.names = FALSE)
+write.csv(pc_change_all, "../output/2025-04-17_summarytable_percent_change.csv", row.names = FALSE)
 ```
 
 
@@ -1602,9 +1602,10 @@ cost_sources_north <- ggplot(sources_of_costs %>%
         strip.placement = 'outside',
         strip.text.x = element_text(size = 22),
         strip.text.y = element_text(size = 22),
-        axis.title=element_text(size=24),
+        axis.title = element_text(size=24),
         axis.title.x = element_blank(),
-        axis.text.x=element_text(size=rel(2.2)),
+        axis.text.x = element_blank(),
+        #axis.text.x=element_text(size=rel(2.2)),
         axis.text.y=element_text(size=rel(2.2)),
         legend.text=element_text(size=22),
         legend.title = element_blank(),
@@ -1637,7 +1638,8 @@ cost_sources_central <- ggplot(sources_of_costs %>%
         strip.text.y = element_text(size = 22),
         axis.title = element_text(size=24),
         axis.title.x = element_blank(),
-        axis.text.x = element_text(size=rel(2.2)),
+        axis.text.x = element_blank(),
+        #axis.text.x = element_text(size=rel(2.2)),
         axis.title.y = element_blank(),
         axis.text.y = element_text(size=rel(2.2)),
         legend.text = element_text(size=22),
@@ -1677,14 +1679,14 @@ cost_sources_east <- ggplot(sources_of_costs %>%
   ggtitle('East')
 
 # combine vertical ----
-# cost_sources_1col <- cost_sources_north + cost_sources_central + cost_sources_east + plot_layout(ncol = 1) +
-#   plot_annotation(
-#     tag_levels = 'a', 
-#     #tag_levels = list(c("(a) N", "(b) C" , "(c) E")),
-#     tag_prefix = '(',  
-#     tag_suffix = ')'
-#     ) & 
-#   theme(plot.tag = element_text(size = 22, face="bold"))
+cost_sources_1col <- cost_sources_north + cost_sources_central + cost_sources_east + plot_layout(ncol = 1) +
+  plot_annotation(
+    tag_levels = 'a',
+    #tag_levels = list(c("(a) N", "(b) C" , "(c) E")),
+    tag_prefix = '(',
+    tag_suffix = ')'
+    ) &
+  theme(plot.tag = element_text(size = 22, face="bold"))
 
 
 # combine horizontal ----
@@ -1719,9 +1721,9 @@ cost_sources_2col <- cost_sources_north + cost_sources_central + cost_sources_ea
 # print(facetpanel_1col)
 # dev.off()
 
-# pdf("../figures/costs-only_sources_1col.pdf", height = 30, width = 10)
-# print(cost_sources_1col)
-# dev.off()
+pdf("../figures/costs-only_sources_1col.pdf", height = 30, width = 10)
+print(cost_sources_1col)
+dev.off()
 # 
 # 
 # pdf("../figures/costs-only_sources_3col.pdf", height = 10, width = 30)
