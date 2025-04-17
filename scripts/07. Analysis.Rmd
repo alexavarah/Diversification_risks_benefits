@@ -527,8 +527,7 @@ c_gp_yld %>%
 (b) Calculate annual mean using c_emiss_diff (which is calculated for each year separately).
 ```{r}
 c_gp_yld %>%
-
-dplyr::filter(scenario == "MIT") %>% 
+  dplyr::filter(scenario == "MIT") %>% 
   
   # 1. Get rotation mean, plus annual min and max differences for each strategy
   dplyr::group_by(scenario, region, soiltype, initDR) %>% 
@@ -767,6 +766,8 @@ pc_change_all <- pc_change_rotn %>%
 
 # Tidy up
 rm(pc_change_rotn, density_rot)
+
+pc_change_all
 ```
 
 ### 4.2.3. Save output as .csv
@@ -1576,8 +1577,6 @@ names(denres.labs) <- c("LD-LR", "LD-HR", "HD-HR") # original
 soiltype.labs <- c("Heavy soil", "Medium soil", "Light soil") # new
 names(soiltype.labs) <- c("heavy", "medium", "light") # original
 ```
-
-
 
 Make plots & combine.  
 A -ve value means MIT wins (green = MIT wins, orange = MIT loses) 
